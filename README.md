@@ -27,7 +27,7 @@ API tests only accept localhost and clean up their own cards, sources and tokens
 ## Included
 
 - Instant capture into Inbox, with keyboard focus via Ctrl/Cmd+K.
-- Navigation opens in a drawer above the workspace; Inbox, board and calendar are managed through their panels.
+- Navigation opens in a drawer above the workspace. Panel visibility, search, filters and layout reset live in the topbar; the working canvas contains only Inbox, board and calendar. Ctrl/Cmd+K opens Inbox and focuses its capture input.
 - Dockable Inbox, board and calendar panels in one workspace: drag a panel header to another panel edge, resize dividers, hide, maximize and reset. Menus provide keyboard alternatives; mobile stacks the panels. Layout preferences persist on this device only.
 - Multiple boards and custom columns; task, sequence and project cards.
 - Nested project boards, parent navigation and cycle prevention. Projects cannot be scheduled; converting a scheduled task into a project returns it to its board.

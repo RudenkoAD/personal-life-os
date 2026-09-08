@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -62,9 +63,11 @@ export default function DockWorkspace({
   panels,
   focus,
   onFocus,
+  toolbarTarget,
 }: {
   panels: Record<DockPanelId, Content>;
-  focus: { panel: DockPanelId; request: number };
+  focus: { panel: DockPanelId; request: number; capture?: boolean };
+  toolbarTarget: HTMLElement | null;
   onFocus: (id: DockPanelId) => void;
 }) {
   const [tree, setTree] = useState<DockNode>(initialDock),
@@ -78,6 +81,7 @@ export default function DockWorkspace({
     [storageError, setStorageError] = useState(false),
     [message, setMessage] = useState('');
   const panelRefs = useRef<Partial<Record<DockPanelId, HTMLElement>>>({});
+  const handledFocusRequest = useRef(0);
   useEffect(() => {
     try {
       const restored = restoreDock(localStorage.getItem(KEY));
@@ -115,14 +119,34 @@ export default function DockWorkspace({
     }
   }, [ready, focus.panel, focus.request]);
   useEffect(() => {
-    if (!ready || focus.request === 0) return;
+    if (
+      !ready ||
+      focus.request === 0 ||
+      handledFocusRequest.current === focus.request
+    )
+      return;
     const frame = requestAnimationFrame(() => {
       const target = panelRefs.current[focus.panel];
-      target?.focus({ preventScroll: true });
-      if (mobile) target?.scrollIntoView({ block: 'start' });
+      const capture =
+        focus.capture && focus.panel === 'inbox'
+          ? target?.querySelector<HTMLInputElement>('[data-inbox-capture]')
+          : null;
+      if (
+        !target ||
+        (focus.capture &&
+          focus.panel === 'inbox' &&
+          (!capture || capture.disabled))
+      )
+        return;
+      const destination = capture ?? target;
+      destination.focus({ preventScroll: true });
+      if (document.activeElement === destination)
+        handledFocusRequest.current = focus.request;
+      if (mobile) target.scrollIntoView({ block: 'start' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, focus.panel, focus.request, mobile]);
+    // Retry after a hidden pane mounts or a pending save re-enables its input.
+  }, [ready, focus.panel, focus.request, focus.capture, mobile, tree, panels]);
   useEffect(() => {
     const cancel = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -351,60 +375,74 @@ export default function DockWorkspace({
   };
   return (
     <div className={`dock-workspace ${mobile ? 'dock-mobile' : ''}`}>
-      <div className="dock-toolbar">
-        <div className="dock-panel-toggles">
-          <span>Панели</span>
-          {PANEL_IDS.map((id) => {
-            const Icon = icons[id],
-              shown = visible.includes(id);
-            return (
-              <button
-                key={id}
-                className={shown ? 'is-visible' : ''}
-                aria-pressed={shown}
-                disabled={!ready || (shown && visible.length === 1)}
-                onClick={() => {
-                  if (shown) close(id);
-                  else {
-                    setTree((current) => showPanel(current, id));
-                    setMaximized(null);
-                    select(id);
-                    setMessage(`Панель «${titles[id]}» открыта`);
-                  }
-                }}
+      {toolbarTarget &&
+        createPortal(
+          <>
+            <div className="dock-toolbar">
+              <div
+                className="dock-panel-toggles"
+                role="group"
+                aria-label="Панели"
               >
-                <Icon size={15} />
-                {titles[id]}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          className="dock-reset"
-          disabled={!ready}
-          onClick={() => {
-            setTree(initialDock());
-            setLayoutEpoch((epoch) => epoch + 1);
-            setMaximized(null);
-            setMoving(null);
-            setHover('');
-            setMessage('Стандартное расположение восстановлено');
-          }}
-        >
-          <RotateCcw size={14} />
-          Сбросить расположение
-        </button>
-      </div>
-      <p className="dock-instructions">
-        {mobile
-          ? 'Меняйте расположение через меню панели. Переносите задачи через их детали.'
-          : 'Заголовок — переместить панель. Разделитель — изменить размер. Карточка — перенести задачу.'}
-      </p>
-      {storageError && (
-        <p className="dock-save-error" role="status">
-          Браузер не разрешил сохранить расположение на этом устройстве.
-        </p>
-      )}
+                {PANEL_IDS.map((id) => {
+                  const Icon = icons[id],
+                    shown = visible.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      className={shown ? 'is-visible' : ''}
+                      aria-pressed={shown}
+                      disabled={!ready || (shown && visible.length === 1)}
+                      onClick={() => {
+                        if (shown) close(id);
+                        else {
+                          setTree((current) => showPanel(current, id));
+                          setMaximized(null);
+                          select(id);
+                          setMessage(`Панель «${titles[id]}» открыта`);
+                        }
+                      }}
+                    >
+                      <Icon size={15} />
+                      {titles[id]}
+                    </button>
+                  );
+                })}
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="dock-options-button"
+                  aria-label="Настройки расположения панелей"
+                  title="Расположение панелей"
+                >
+                  <Ellipsis size={19} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={!ready}
+                    onClick={() => {
+                      setTree(initialDock());
+                      setLayoutEpoch((epoch) => epoch + 1);
+                      setMaximized(null);
+                      setMoving(null);
+                      setHover('');
+                      setMessage('Стандартное расположение восстановлено');
+                    }}
+                  >
+                    <RotateCcw size={14} />
+                    Сбросить расположение
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            {storageError && (
+              <p className="dock-save-error" role="status">
+                Браузер не разрешил сохранить расположение на этом устройстве.
+              </p>
+            )}
+          </>,
+          toolbarTarget,
+        )}
       <div className="dock-canvas">
         {ready ? (
           maximized ? (

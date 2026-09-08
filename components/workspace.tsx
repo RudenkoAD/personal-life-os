@@ -53,6 +53,12 @@ import {
 } from '@/components/ui/select';
 import DockWorkspace from '@/components/dock-workspace';
 import type { DockPanelId } from '@/lib/dock-layout';
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverTitle,
+} from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -223,6 +229,8 @@ export default function Workspace() {
   const [state, setState] = useState<LifeState | null>(null),
     stateRef = useRef<LifeState | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [dockToolbarTarget, setDockToolbarTarget] =
+    useState<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>('board'),
     [boardId, setBoardId] = useState('main'),
     [scope, setScope] = useState('all'),
@@ -231,6 +239,7 @@ export default function Workspace() {
   const [dockFocus, setDockFocus] = useState<{
     panel: DockPanelId;
     request: number;
+    capture?: boolean;
   }>({ panel: 'board', request: 0 });
   const [loading, setLoading] = useState(true),
     [pending, setPending] = useState(false),
@@ -253,7 +262,6 @@ export default function Workspace() {
   const lastSyncAttempt = useRef<Record<string, number>>({});
   const [day, setDay] = useState(dateKey()),
     [calendarMode, setCalendarMode] = useState('day'),
-    [mobileCapture, setMobileCapture] = useState(false),
     [dragged, setDragged] = useState<string | null>(null),
     [dropTarget, setDropTarget] = useState<string | null>(null);
   const update = useCallback((data: LifeState) => {
@@ -274,22 +282,29 @@ export default function Workspace() {
       setLoading(false);
     }
   }, [update]);
+  const focusInboxCapture = useCallback(() => {
+    setNavigationOpen(false);
+    setView('inbox');
+    setDockFocus((f) => ({
+      panel: 'inbox',
+      request: f.request + 1,
+      capture: true,
+    }));
+  }, []);
   useEffect(() => {
     void reload();
     if (new URLSearchParams(location.search).get('capture') === '1') {
-      setView('inbox');
-      setDockFocus({ panel: 'inbox', request: 1 });
-      setMobileCapture(true);
+      focusInboxCapture();
     }
     const handle = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        captureRef.current?.focus();
+        focusInboxCapture();
       }
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [reload]);
+  }, [reload, focusInboxCapture]);
   useEffect(() => {
     if (calendarRef.current) calendarRef.current.scrollTop = 8 * 72;
   }, [calendarMode]);
@@ -679,6 +694,7 @@ export default function Workspace() {
           }}
         >
           <input
+            data-inbox-capture
             aria-label="Новая задача в Inbox"
             disabled={pending}
             placeholder="Добавить задачу…"
@@ -1019,6 +1035,24 @@ export default function Workspace() {
       </p>
     </div>
   ) : null;
+  const feedback = (
+    <>
+      {failure && (
+        <div className="error-banner" role="alert">
+          <span>{failure}</span>
+          <button aria-label="Закрыть ошибку" onClick={() => setFailure('')}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div className="notice" role="status">
+          <CheckCheck size={17} />
+          {notice}
+        </div>
+      )}
+    </>
+  );
   return (
     <SidebarProvider
       open={navigationOpen}
@@ -1168,8 +1202,8 @@ export default function Workspace() {
             </SidebarFooter>
           </Sidebar>
         </SheetContent>
-        <SidebarInset className="app-inset">
-          <header className="topbar">
+        <SidebarInset className={`app-inset ${isDockView ? 'dock-shell' : ''}`}>
+          <header className={`topbar ${isDockView ? 'workspace-topbar' : ''}`}>
             <SheetTrigger
               className="navigation-trigger"
               aria-label="Открыть меню"
@@ -1177,136 +1211,196 @@ export default function Workspace() {
               <Menu size={19} />
               <span>Меню</span>
             </SheetTrigger>
-            <span>Моё пространство</span>
-            <ChevronRight size={14} />
-            <b>{view === 'board' ? 'Доски' : titles[view]}</b>
+            {isDockView ? (
+              <div
+                className="topbar-dock-controls"
+                ref={setDockToolbarTarget}
+              />
+            ) : (
+              <b>{titles[view]}</b>
+            )}
+            {(isDockView || view === 'projects') && (
+              <>
+                <label className="search-box topbar-search">
+                  <Search size={16} />
+                  <input
+                    aria-label="Поиск карточек и событий"
+                    placeholder="Найти…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  {query && (
+                    <button
+                      aria-label="Очистить поиск"
+                      onClick={() => setQuery('')}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </label>
+                <Popover>
+                  <PopoverTrigger
+                    className={`topbar-filter ${scope !== 'all' || !showDone ? 'has-filters' : ''}`}
+                    aria-label="Фильтры задач"
+                    title="Фильтры задач"
+                    disabled={!state}
+                  >
+                    <Settings2 size={17} />
+                    <span className="sr-only">Фильтры</span>
+                    {(scope !== 'all' || !showDone) && (
+                      <span className="filter-active-dot" />
+                    )}
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="workspace-filter-popover"
+                    align="end"
+                  >
+                    <PopoverTitle>Фильтры задач</PopoverTitle>
+                    {state && (
+                      <>
+                        <SelectBox
+                          value={scope}
+                          onChange={setScope}
+                          label="Фильтр по сфере"
+                          options={[
+                            { value: 'all', label: 'Все сферы' },
+                            ...state.tags.map((t) => ({
+                              value: t.id,
+                              label: t.title,
+                            })),
+                          ]}
+                        />
+                        <label className="checkbox-label">
+                          <Checkbox
+                            checked={showDone}
+                            onCheckedChange={(v) => setShowDone(v === true)}
+                          />
+                          Показывать готовые
+                        </label>
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setScope('all');
+                            setShowDone(true);
+                            setQuery('');
+                          }}
+                        >
+                          Сбросить фильтры и поиск
+                        </button>
+                      </>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              </>
+            )}
             <div className="topbar-right">
-              <span className="save-indicator">
-                <span />
-                {pending ? 'Сохраняем…' : 'Личное пространство'}
-              </span>
-              <button
-                className="icon-btn"
-                aria-label="Быстрый захват"
-                onClick={() => captureRef.current?.focus()}
-              >
-                <Plus size={19} />
-              </button>
+              {pending && (
+                <span className="save-indicator" role="status">
+                  <span />
+                  Сохраняем…
+                </span>
+              )}
+              {!isDockView && (
+                <button
+                  className="icon-btn"
+                  aria-label="Быстрый захват"
+                  onClick={focusInboxCapture}
+                >
+                  <Plus size={19} />
+                </button>
+              )}
             </div>
           </header>
+          {isDockView && (failure || notice) && (
+            <div className="dock-feedback">{feedback}</div>
+          )}
           <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
-            <div className="heading-kicker">
-              <span className="eyebrow">
-                {view === 'board'
-                  ? 'ДЕЛА В СВОЁМ ТЕМПЕ'
-                  : view === 'inbox'
-                    ? 'СНАЧАЛА ЗАПИСАТЬ, ПОТОМ РАЗОБРАТЬ'
-                    : view === 'calendar'
-                      ? 'МЕСТО ДЛЯ ВАШЕГО ВРЕМЕНИ'
-                      : view === 'reviews'
-                        ? 'ПОСМОТРЕТЬ НА ЖИЗНЬ ЦЕЛИКОМ'
-                        : 'ЛИЧНОЕ ПРОСТРАНСТВО'}
-              </span>
-              <span className="current-date">
-                {prettyDate(new Date().toISOString())}
-              </span>
-            </div>
-            <div className="page-title">
-              <div>
-                <h1>{isDockView ? 'Моё пространство' : titles[view]}</h1>
-                <p className="page-subtitle">
-                  {isDockView
-                    ? 'Записать, разобрать, запланировать — всё перед глазами.'
-                    : view === 'projects'
-                      ? 'Большие замыслы начинаются с небольших шагов.'
-                      : view === 'reviews'
-                        ? 'Постоянные списки помогают помнить о важных сферах.'
-                        : view === 'agent'
-                          ? 'Доступ к вашим задачам через общие правила приложения.'
-                          : 'Внешние события рядом с вашими планами.'}
-                </p>
-              </div>
-              {['board', 'inbox', 'projects'].includes(view) && (
-                <button
-                  className="primary"
-                  disabled={!state}
-                  onClick={() =>
-                    view === 'projects'
-                      ? setNewForm({
+            {!isDockView && (
+              <>
+                <div className="heading-kicker">
+                  <span className="eyebrow">
+                    {view === 'reviews'
+                      ? 'ПОСМОТРЕТЬ НА ЖИЗНЬ ЦЕЛИКОМ'
+                      : 'ЛИЧНОЕ ПРОСТРАНСТВО'}
+                  </span>
+                  <span className="current-date">
+                    {prettyDate(new Date().toISOString())}
+                  </span>
+                </div>
+                <div className="page-title">
+                  <div>
+                    <h1>{titles[view]}</h1>
+                    <p className="page-subtitle">
+                      {view === 'projects'
+                        ? 'Большие замыслы начинаются с небольших шагов.'
+                        : view === 'reviews'
+                          ? 'Постоянные списки помогают помнить о важных сферах.'
+                          : view === 'agent'
+                            ? 'Доступ к вашим задачам через общие правила приложения.'
+                            : 'Внешние события рядом с вашими планами.'}
+                    </p>
+                  </div>
+                  {view === 'projects' && (
+                    <button
+                      className="primary"
+                      disabled={!state}
+                      onClick={() =>
+                        setNewForm({
                           kind: 'card',
                           title: '',
                           cardType: 'project',
                         })
-                      : view === 'inbox'
-                        ? setNewForm({
-                            kind: 'card',
-                            title: '',
-                            placement: 'inbox',
-                          })
-                        : openNew()
-                  }
-                >
-                  <Plus size={17} />
-                  {view === 'projects' ? 'Новый проект' : 'Новая карточка'}
-                </button>
-              )}
-              {view === 'reviews' && (
-                <button
-                  className="primary"
-                  onClick={() => setNewForm({ kind: 'review', title: '' })}
-                >
-                  <Plus size={17} />
-                  Новый список
-                </button>
-              )}
-              {view === 'settings' && (
-                <button className="primary" onClick={() => setImportOpen(true)}>
-                  <Plus size={17} />
-                  Добавить календарь
-                </button>
-              )}
-            </div>
-            <form className="capture" onSubmit={submitCapture}>
-              <span className="capture-icon">
-                <Plus size={19} />
-              </span>
-              <input
-                ref={captureRef}
-                autoFocus={mobileCapture}
-                aria-label="Быстрый захват во входящие"
-                placeholder="Что нужно сделать? Запишите, разберётесь позже…"
-                value={capture}
-                maxLength={200}
-                onChange={(e) => setCapture(e.target.value)}
-                disabled={!state}
-              />
-              <kbd>⌘ K</kbd>
-              <button
-                className="capture-submit"
-                type="submit"
-                disabled={pending || !capture.trim() || !state}
-                aria-label="Отправить во входящие"
-              >
-                <CornerDownLeft size={19} />
-              </button>
-            </form>
-            {failure && (
-              <div className="error-banner" role="alert">
-                <span>{failure}</span>
-                <button
-                  aria-label="Закрыть ошибку"
-                  onClick={() => setFailure('')}
-                >
-                  <X size={16} />
-                </button>
-              </div>
+                      }
+                    >
+                      <Plus size={17} />
+                      Новый проект
+                    </button>
+                  )}
+                  {view === 'reviews' && (
+                    <button
+                      className="primary"
+                      onClick={() => setNewForm({ kind: 'review', title: '' })}
+                    >
+                      <Plus size={17} />
+                      Новый список
+                    </button>
+                  )}
+                  {view === 'settings' && (
+                    <button
+                      className="primary"
+                      onClick={() => setImportOpen(true)}
+                    >
+                      <Plus size={17} />
+                      Добавить календарь
+                    </button>
+                  )}
+                </div>
+                <form className="capture" onSubmit={submitCapture}>
+                  <span className="capture-icon">
+                    <Plus size={19} />
+                  </span>
+                  <input
+                    ref={captureRef}
+                    aria-label="Быстрый захват во входящие"
+                    placeholder="Что нужно сделать? Запишите, разберётесь позже…"
+                    value={capture}
+                    maxLength={200}
+                    onChange={(e) => setCapture(e.target.value)}
+                    disabled={!state}
+                  />
+                  <kbd>⌘ K</kbd>
+                  <button
+                    className="capture-submit"
+                    type="submit"
+                    disabled={pending || !capture.trim() || !state}
+                    aria-label="Отправить во входящие"
+                  >
+                    <CornerDownLeft size={19} />
+                  </button>
+                </form>
+              </>
             )}
-            {notice && (
-              <div className="notice" role="status">
-                <CheckCheck size={17} />
-                {notice}
-              </div>
-            )}
+            {!isDockView && feedback}
             {loading ? (
               <div className="loading-grid">
                 {[1, 2, 3].map((i) => (
@@ -1332,51 +1426,6 @@ export default function Workspace() {
             ) : (
               state && (
                 <>
-                  {['board', 'inbox', 'calendar', 'projects'].includes(
-                    view,
-                  ) && (
-                    <div className="filterbar">
-                      <div className="filter-left">
-                        <SelectBox
-                          value={scope}
-                          onChange={setScope}
-                          label="Фильтр по сфере"
-                          options={[
-                            { value: 'all', label: 'Все сферы' },
-                            ...state.tags.map((t) => ({
-                              value: t.id,
-                              label: t.title,
-                            })),
-                          ]}
-                        />
-                        <span className="filter-divider" />
-                        <label className="search-box">
-                          <Search size={16} />
-                          <input
-                            aria-label="Поиск карточек и событий"
-                            placeholder="Найти…"
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                          />
-                          {query && (
-                            <button
-                              aria-label="Очистить поиск"
-                              onClick={() => setQuery('')}
-                            >
-                              <X size={14} />
-                            </button>
-                          )}
-                        </label>
-                      </div>
-                      <label className="checkbox-label">
-                        <Checkbox
-                          checked={showDone}
-                          onCheckedChange={(v) => setShowDone(v === true)}
-                        />
-                        Показывать готовые
-                      </label>
-                    </div>
-                  )}
                   {isDockView && board && (
                     <DockWorkspace
                       panels={{
@@ -1392,6 +1441,7 @@ export default function Workspace() {
                       }}
                       focus={dockFocus}
                       onFocus={setView}
+                      toolbarTarget={dockToolbarTarget}
                     />
                   )}
                   {view === 'projects' &&

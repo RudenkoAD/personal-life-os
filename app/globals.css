@@ -2774,29 +2774,6 @@ p {
 .dock-page > * {
   flex-shrink: 0;
 }
-.dock-page .heading-kicker {
-  display: none;
-}
-.dock-page .page-title {
-  margin-bottom: 12px;
-}
-.dock-page .page-title h1 {
-  font-size: 24px;
-  letter-spacing: -0.5px;
-}
-.dock-page .page-subtitle {
-  margin-top: 4px;
-  font-size: 13px;
-}
-.dock-page .capture {
-  min-height: 44px;
-  padding: 4px 8px;
-  margin-bottom: 10px;
-}
-.dock-page .filterbar {
-  margin-bottom: 8px;
-  gap: 12px;
-}
 .dock-page + .workspace-footer {
   display: none;
 }
@@ -3324,6 +3301,189 @@ p {
 }
 @media (max-width: 767px) {
   .navigation-trigger span {
+    display: none;
+  }
+}
+
+/* All workspace controls live in the header; the canvas contains only panels. */
+.app-inset.dock-shell {
+  height: 100dvh;
+  min-height: 360px;
+  overflow: hidden;
+}
+.dock-shell .workspace.dock-page {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  overflow: hidden;
+}
+.topbar.workspace-topbar {
+  min-height: 64px;
+  height: auto;
+  padding: 10px 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.topbar-dock-controls {
+  min-width: 0;
+  position: relative;
+}
+.topbar .dock-toolbar {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.topbar .dock-panel-toggles {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.topbar .dock-panel-toggles button {
+  padding: 8px 11px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.topbar .dock-panel-toggles button svg {
+  flex-shrink: 0;
+}
+.dock-options-button,
+.topbar-filter {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e0e5ef;
+  border-radius: 7px;
+  color: #687c9c;
+  background: #fff;
+}
+.dock-options-button:hover,
+.topbar-filter:hover,
+.topbar-filter.has-filters {
+  background: #edf1ff;
+  color: #5267bb;
+}
+.filter-active-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #6379d0;
+}
+.topbar .topbar-search {
+  display: flex;
+  flex: 1 1 180px;
+  max-width: 340px;
+  min-width: 100px;
+  border: 1px solid #e0e5ef;
+  background: #f7f9fc;
+  border-radius: 7px;
+  padding: 7px 10px;
+  height: 36px;
+}
+.topbar .topbar-search input {
+  width: 100%;
+  font-size: 14px;
+}
+.topbar .topbar-search svg {
+  flex-shrink: 0;
+}
+.topbar .topbar-search:focus-within {
+  border-color: #93a6dc;
+  box-shadow: 0 0 0 2px #cbd6f32b;
+}
+.topbar-right:empty {
+  display: none;
+}
+.workspace-filter-popover {
+  padding: 16px;
+  gap: 16px;
+}
+.workspace-filter-popover [data-slot='select-trigger'] {
+  width: 100%;
+}
+.workspace-filter-popover .checkbox-label {
+  font-size: 14px;
+}
+.topbar-dock-controls .dock-save-error {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 0;
+  width: 280px;
+  padding: 12px;
+  border: 1px solid #e4cfad;
+  background: #fffaf0;
+  border-radius: 7px;
+  z-index: 45;
+}
+.dock-feedback {
+  position: fixed;
+  right: 20px;
+  bottom: 18px;
+  z-index: 45;
+  width: min(440px, calc(100vw - 40px));
+  pointer-events: none;
+}
+.dock-feedback > * {
+  pointer-events: auto;
+  box-shadow: 0 4px 20px #27335418;
+}
+.dock-feedback .notice,
+.dock-feedback .error-banner {
+  margin: 0;
+}
+@media (max-width: 767px) {
+  .app-inset.dock-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .dock-shell .workspace.dock-page {
+    flex: none;
+    height: auto;
+    overflow: visible;
+    padding: 10px;
+  }
+  .topbar.workspace-topbar {
+    padding: 9px 10px;
+    gap: 7px;
+    position: sticky;
+    top: 0;
+    z-index: 25;
+  }
+  .workspace-topbar .navigation-trigger {
+    padding: 7px;
+  }
+  .workspace-topbar .topbar-dock-controls {
+    flex: 1;
+  }
+  .topbar .dock-toolbar,
+  .topbar .dock-panel-toggles {
+    gap: 4px;
+  }
+  .topbar .dock-panel-toggles {
+    flex: 1;
+  }
+  .topbar .dock-panel-toggles button {
+    flex: 1;
+    font-size: 13px;
+    padding: 7px;
+    gap: 4px;
+  }
+  .workspace-topbar .topbar-search {
+    flex-basis: calc(100% - 50px);
+    max-width: none;
+  }
+  .workspace-topbar .topbar-right {
+    display: none;
+  }
+}
+@media (max-width: 380px) {
+  .topbar .dock-panel-toggles button svg {
     display: none;
   }
 }
