@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `commit_id` text;

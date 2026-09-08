@@ -1,0 +1,1 @@
+{"name":"Life OS — личное пространство","short_name":"Life OS","description":"Быстрый захват дел и личный календарь","start_url":"/?capture=1","display":"standalone","background_color":"#f6f7fa","theme_color":"#161d31","lang":"ru","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}],"shortcuts":[{"name":"Записать дело","url":"/?capture=1"}]}
