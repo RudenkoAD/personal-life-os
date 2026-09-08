@@ -1,10 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { initialState, type LifeState } from '../lib/domain.ts';
+import { materializeRecurrences } from '../lib/recurrences.ts';
 export function rawDb() {
   if (!env.DB) throw new Error('Storage unavailable');
   return env.DB as D1Database;
 }
-export async function loadState(owner: string): Promise<LifeState> {
+async function readState(owner: string): Promise<LifeState> {
   const db = rawDb();
   let row = await db
     .prepare('SELECT data FROM workspaces WHERE owner_id = ?')
@@ -24,7 +25,27 @@ export async function loadState(owner: string): Promise<LifeState> {
       .first<{ data: string }>();
   }
   if (!row) throw new Error('Storage unavailable');
-  return JSON.parse(row.data);
+  const state: LifeState = JSON.parse(row.data);
+  state.recurrences ??= [];
+  return state;
+}
+export async function loadState(
+  owner: string,
+  now = new Date(),
+): Promise<LifeState> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const before = await readState(owner);
+    const after = materializeRecurrences(before, now);
+    if (after === before) return before;
+    try {
+      await saveState(owner, before.revision, after);
+      return after;
+    } catch (error) {
+      if ((error as { status?: number }).status !== 409) throw error;
+    }
+  }
+  // A busy workspace can defer the next check; never overwrite a user's write.
+  return readState(owner);
 }
 export type FeedChange =
   | { kind: 'put'; id: string; url: string }

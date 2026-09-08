@@ -3,6 +3,35 @@ export const MINUTES_PER_SLOT = 15;
 export const TRACK_HEIGHT = 24 * 72;
 const MIN_DURATION = MINUTES_PER_SLOT * 60_000;
 const DAY = 24 * 60 * 60_000;
+const MAX_GRAB_OFFSET = 31 * DAY;
+
+/** Extra drag metadata is advisory; the card id remains the authoritative payload. */
+export const CARD_DRAG_META = 'application/x-life-card-meta';
+
+export function encodeGrabOffset(offsetMs: number) {
+  const value = Number.isFinite(offsetMs)
+    ? Math.max(-MAX_GRAB_OFFSET, Math.min(MAX_GRAB_OFFSET, offsetMs))
+    : 0;
+  return JSON.stringify({
+    version: 1,
+    origin: 'calendar',
+    grabOffsetMs: value,
+  });
+}
+
+export function decodeGrabOffset(raw: string | null | undefined) {
+  if (!raw || raw.length > 256) return 0;
+  try {
+    const metadata = JSON.parse(raw);
+    if (metadata?.version !== 1 || metadata?.origin !== 'calendar') return 0;
+    const value = metadata.grabOffsetMs;
+    return Number.isFinite(value)
+      ? Math.max(-MAX_GRAB_OFFSET, Math.min(MAX_GRAB_OFFSET, value))
+      : 0;
+  } catch {
+    return 0;
+  }
+}
 
 export type LayoutInput = {
   id: string;
@@ -65,15 +94,17 @@ export function dropInterval(
   trackTop: number,
   trackHeight = TRACK_HEIGHT,
   duration = 3600000,
+  grabOffset = 0,
 ) {
   const bounds = dayBounds(day);
-  const start = Math.max(
+  const offset = Number.isFinite(grabOffset) ? grabOffset : 0;
+  // Clamp the pointer to the visible day before subtracting the grab offset.
+  // The resulting start may lie on the preceding day for a clipped continuation.
+  const pointer = Math.max(
     bounds.start,
-    Math.min(
-      bounds.end - MIN_DURATION,
-      snapMs(pointerTimestamp(day, clientY, trackTop, trackHeight)),
-    ),
+    Math.min(bounds.end, pointerTimestamp(day, clientY, trackTop, trackHeight)),
   );
+  const start = Math.min(bounds.end - MIN_DURATION, snapMs(pointer - offset));
   return { start, end: start + duration };
 }
 

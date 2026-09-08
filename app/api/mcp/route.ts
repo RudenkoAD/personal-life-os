@@ -17,6 +17,11 @@ const allowed = [
   'column.add',
   'column.rename',
   'tag.create',
+  'tag.update',
+  'tag.delete',
+  'recurrence.create',
+  'recurrence.update',
+  'recurrence.delete',
   'review.create',
   'review.update',
   'review.prompt',
@@ -26,7 +31,7 @@ const tools = [
   {
     name: 'life_read',
     description:
-      'Read this user’s tasks, Inbox, boards, tags, calendar sources/events, review lists and revision. Feed secrets are never returned.',
+      'Read this user’s tasks, Inbox, boards, scopes, recurring task rules, calendar sources/events, review lists and revision. Due recurring rules produce one Inbox task on read. Feed secrets are never returned.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -39,7 +44,7 @@ const tools = [
     description:
       'Apply one task, project, calendar or review action through the shared domain service. Read first and pass its revision; stale revisions fail. Action type: ' +
       allowed.join(', ') +
-      '. capture/create: title, optional cardType task/sequence/project, boardId, tags. update: id, title/notes/tags/cardType. move: id, boardId, columnId. schedule: id, ISO start/end. complete: id, done boolean. step.add: id,title; step.toggle/delete: id,stepId. Other operations use id/title/boardId/promptId/notes/intervalDays as appropriate.',
+      '. capture/create: title, optional cardType task/sequence/project, boardId, tags. update: id, title/notes/tags/cardType. move: id, boardId, columnId. schedule: id, ISO start/end. complete: id, done boolean. step.add: id,title; step.toggle/delete: id,stepId. tag.create/update: title,color (#RRGGBB); update/delete require id. Deleting a scope unlinks its tags but keeps tasks. recurrence.create: title,intervalMinutes (1..525600),firstAt (ISO instant), optional notes,tags (scope IDs); recurrence.update: id and changed fields only; firstAt explicitly resets the next appearance if not paused. Recurrences pause while any generated task is unfinished in Inbox, then restart from its completion or exit time. recurrence.delete: id; keeps existing tasks. Other operations use id/title/boardId/promptId/notes/intervalDays as appropriate.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -54,7 +59,7 @@ const tools = [
     },
     annotations: {
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: false,
     },
   },

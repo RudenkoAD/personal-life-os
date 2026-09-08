@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildDayLayout,
+  decodeGrabOffset,
   clampResize,
+  encodeGrabOffset,
   dayBounds,
   dropInterval,
   pointerTimestamp,
@@ -116,4 +118,71 @@ test('pointer mapping follows scrolling and drops at23:45 rather than23:59 while
   assert.equal(interval.start, zero + 1425 * minute);
   assert.equal(interval.end - interval.start, 90 * minute);
   assert.equal(dropInterval(day, -100, 0).start, zero);
+});
+
+test('calendar body drop preserves grabbed position and snaps the real start to15 minutes', () => {
+  const originalStart = zero + 9 * 60 * minute + 7 * minute;
+  const pointer = zero + 10 * 60 * minute + 22 * minute;
+  const offset = pointer - originalStart;
+  const interval = dropInterval(
+    day,
+    ((10 * 60 + 22) / 1440) * TRACK_HEIGHT,
+    0,
+    TRACK_HEIGHT,
+    90 * minute,
+    offset,
+  );
+  assert.equal(interval.start, zero + 9 * 60 * minute);
+  assert.equal(interval.end - interval.start, 90 * minute);
+});
+
+test('grab offset is computed against an actual start when a continuation is clipped at midnight', () => {
+  const previous = dayBounds(day).start + 23 * 60 * minute;
+  const nextDay = '2026-09-09';
+  const nextStart = dayBounds(nextDay).start;
+  const pointer = nextStart + 30 * minute;
+  const interval = dropInterval(
+    day,
+    12 * 72,
+    0,
+    TRACK_HEIGHT,
+    2 * 60 * minute,
+    pointer - previous,
+  );
+  assert.equal(interval.start, zero + 10 * 60 * minute + 30 * minute);
+});
+
+test('moving a clipped continuation to the same time on the next day keeps its absolute start before midnight', () => {
+  const sourceStart = dayBounds(day).start + 23 * 60 * minute;
+  const destination = '2026-09-09';
+  const pointer = dayBounds(destination).start + 30 * minute;
+  const interval = dropInterval(
+    destination,
+    (30 / 1440) * TRACK_HEIGHT,
+    0,
+    TRACK_HEIGHT,
+    2 * 60 * minute,
+    pointer - sourceStart,
+  );
+  assert.equal(interval.start, sourceStart);
+  assert.equal(interval.end - interval.start, 2 * 60 * minute);
+});
+
+test('malformed or hostile drag metadata falls back to zero and remains bounded', () => {
+  assert.equal(decodeGrabOffset('{bad'), 0);
+  assert.equal(
+    decodeGrabOffset(
+      '{"version":2,"origin":"calendar","grabOffsetMs":3600000}',
+    ),
+    0,
+  );
+  assert.equal(
+    decodeGrabOffset('{"version":1,"origin":"board","grabOffsetMs":3600000}'),
+    0,
+  );
+  assert.equal(decodeGrabOffset('{"grabOffsetMs":"20"}'), 0);
+  assert.equal(decodeGrabOffset('{"grabOffsetMs":null}'), 0);
+  assert.equal(decodeGrabOffset(encodeGrabOffset(Infinity)), 0);
+  assert.equal(decodeGrabOffset('x'.repeat(257)), 0);
+  assert.ok(decodeGrabOffset('{"grabOffsetMs":999999999999}') <= 31 * 86400000);
 });

@@ -32,6 +32,7 @@ export function applyMutation(
     ...state.cards.flatMap((c) => [c.id, ...c.steps.map((s) => s.id)]),
     ...state.boards.flatMap((b) => [b.id, ...b.columns.map((c) => c.id)]),
     ...state.tags.map((t) => t.id),
+    ...(state.recurrences ?? []).map((r) => r.id),
     ...state.reviews.flatMap((r) => [r.id, ...r.prompts.map((p) => p.id)]),
   ]);
   let slot = 0;

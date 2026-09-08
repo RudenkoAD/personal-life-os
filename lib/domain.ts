@@ -1,3 +1,4 @@
+import { reconcileRecurrenceWaits } from './recurrences.ts';
 export type CardType = 'task' | 'sequence' | 'project';
 export type Placement = 'inbox' | 'board' | 'calendar';
 export interface Step {
@@ -22,6 +23,7 @@ export interface Card {
   start?: string;
   end?: string;
   createdAt: string;
+  recurrenceId?: string;
 }
 export interface Board {
   id: string;
@@ -42,6 +44,18 @@ export interface Review {
   nextDue: string;
   notes: string;
   history: { date: string; notes: string }[];
+}
+export interface RecurringRule {
+  id: string;
+  title: string;
+  notes: string;
+  tags: string[];
+  intervalMinutes: number;
+  firstAt: string;
+  nextAt: string | null;
+  waitingCardId: string | null;
+  generation: number;
+  lastReleasedAt?: string;
 }
 export interface Source {
   id: string;
@@ -70,6 +84,7 @@ export interface LifeState {
   boards: Board[];
   tags: Scope[];
   reviews: Review[];
+  recurrences: RecurringRule[];
   sources: Source[];
   events: CalendarEvent[];
   history: { at: string; text: string; actor: string }[];
@@ -162,6 +177,7 @@ export function initialState(now = new Date()): LifeState {
       },
     ],
     sources: [],
+    recurrences: [],
     events: [],
     history: [],
   };
@@ -242,6 +258,7 @@ export function applyAction(
 ): LifeState {
   const s = structuredClone(input),
     now = nowDate.toISOString();
+  s.recurrences ??= [];
   let message = 'Обновлено';
   if (!a || typeof a.type !== 'string') fail('Неизвестное действие');
   switch (a.type) {
@@ -412,6 +429,99 @@ export function applyAction(
       message = `Создан тег: ${title}`;
       break;
     }
+    case 'tag.update': {
+      const tag = s.tags.find((t) => t.id === a.id) ?? fail('Сфера не найдена');
+      if (a.title !== undefined) {
+        const title = textValue(a.title, 'Название сферы', 40);
+        if (
+          s.tags.some(
+            (t) =>
+              t.id !== tag.id && t.title.toLowerCase() === title.toLowerCase(),
+          )
+        )
+          fail('Такая сфера уже есть');
+        tag.title = title;
+      }
+      if (a.color !== undefined) {
+        if (typeof a.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(a.color))
+          fail('Укажите цвет сферы');
+        tag.color = a.color;
+      }
+      message = `Сфера изменена: ${tag.title}`;
+      break;
+    }
+    case 'tag.delete': {
+      const tag = s.tags.find((t) => t.id === a.id) ?? fail('Сфера не найдена');
+      s.tags = s.tags.filter((t) => t.id !== tag.id);
+      for (const item of [
+        ...s.cards,
+        ...s.events,
+        ...s.sources,
+        ...s.recurrences,
+      ])
+        item.tags = item.tags.filter((id) => id !== tag.id);
+      message = `Сфера удалена: ${tag.title}`;
+      break;
+    }
+    case 'recurrence.create':
+    case 'recurrence.update': {
+      const creating = a.type === 'recurrence.create';
+      const existing = creating
+        ? undefined
+        : s.recurrences.find((r) => r.id === a.id);
+      if (!creating && !existing) fail('Рекуррентное дело не найдено');
+      const r: RecurringRule = existing ?? {
+        id: makeId(),
+        title: '',
+        notes: '',
+        tags: [],
+        intervalMinutes: 1440,
+        firstAt: now,
+        nextAt: now,
+        waitingCardId: null,
+        generation: 0,
+      };
+      if (creating || a.title !== undefined)
+        r.title = textValue(a.title, 'Задача');
+      if (a.notes !== undefined) r.notes = optionalText(a.notes);
+      if (a.tags !== undefined) r.tags = tagIds(s, a.tags);
+      if (creating || a.intervalMinutes !== undefined) {
+        if (
+          !Number.isInteger(a.intervalMinutes) ||
+          Number(a.intervalMinutes) < 1 ||
+          Number(a.intervalMinutes) > 365 * 1440
+        )
+          fail('Интервал: от 1 минуты до 365 дней');
+        r.intervalMinutes = Number(a.intervalMinutes);
+        if (!r.waitingCardId && r.lastReleasedAt)
+          r.nextAt = new Date(
+            Date.parse(r.lastReleasedAt) + r.intervalMinutes * 60000,
+          ).toISOString();
+      }
+      if (creating || a.firstAt !== undefined) {
+        const first = strictInstant(a.firstAt);
+        if (!Number.isFinite(first))
+          fail('Укажите дату и время первого появления');
+        r.firstAt = new Date(first).toISOString();
+        if (!r.waitingCardId) {
+          r.nextAt = r.firstAt;
+          delete r.lastReleasedAt;
+        }
+      }
+      if (creating) s.recurrences.push(r);
+      message = `${creating ? 'Создано' : 'Изменено'} рекуррентное дело: ${r.title}`;
+      break;
+    }
+    case 'recurrence.delete': {
+      const r =
+        s.recurrences.find((r) => r.id === a.id) ??
+        fail('Рекуррентное дело не найдено');
+      s.recurrences = s.recurrences.filter((x) => x.id !== r.id);
+      for (const card of s.cards)
+        if (card.recurrenceId === r.id) delete card.recurrenceId;
+      message = `Удалено повторение: ${r.title}`;
+      break;
+    }
     case 'review.create': {
       s.reviews.push({
         id: makeId(),
@@ -509,7 +619,12 @@ export function applyAction(
       for (const [title, cardType, tag] of examples) {
         const c = addCard(
           s,
-          { type: 'create', title, cardType, tags: [tag] },
+          {
+            type: 'create',
+            title,
+            cardType,
+            tags: s.tags.some((t) => t.id === tag) ? [tag] : [],
+          },
           now,
           makeId,
         );
@@ -527,7 +642,7 @@ export function applyAction(
               type: 'create',
               title: 'Собрать последние работы',
               boardId: c.childBoardId,
-              tags: ['work'],
+              tags: s.tags.some((t) => t.id === 'work') ? ['work'] : [],
             },
             now,
             makeId,
@@ -551,9 +666,11 @@ export function applyAction(
     s.cards.length > 2000 ||
     s.boards.length > 200 ||
     s.tags.length > 100 ||
-    s.reviews.length > 100
+    s.reviews.length > 100 ||
+    s.recurrences.length > 100
   )
     fail('Достигнут лимит пространства');
+  reconcileRecurrenceWaits(s, nowDate);
   s.revision = input.revision + 1;
   s.history.unshift({ at: now, text: message, actor });
   s.history = s.history.slice(0, 100);

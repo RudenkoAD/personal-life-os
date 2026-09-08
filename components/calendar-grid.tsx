@@ -5,7 +5,10 @@ import {
   buildDayLayout,
   clampResize,
   dayBounds,
+  CARD_DRAG_META,
+  decodeGrabOffset,
   dropInterval,
+  encodeGrabOffset,
   pointerTimestamp,
   TRACK_HEIGHT,
 } from '@/lib/calendar-layout';
@@ -53,6 +56,9 @@ export function CalendarGrid({
 }: Props) {
   const tracks = useRef<Record<string, HTMLDivElement | null>>({});
   const drag = useRef<Drag | null>(null);
+  const bodyGrab = useRef<{ id: string; day: string; offset: number } | null>(
+    null,
+  );
   const [preview, setPreview] = useState<(Interval & { id: string }) | null>(
     null,
   );
@@ -170,11 +176,54 @@ export function CalendarGrid({
     if (next.start !== start || next.end !== end)
       void onSchedule(id, iso(next.start), iso(next.end));
   };
+  const clearBodyGrab = () => {
+    bodyGrab.current = null;
+  };
+  const captureBodyGrab = (
+    e: React.PointerEvent,
+    id: string,
+    day: string,
+    start: number,
+  ) => {
+    const track = tracks.current[day];
+    if (e.button !== 0 || !track) return;
+    const rect = track.getBoundingClientRect();
+    bodyGrab.current = {
+      id,
+      day,
+      offset: pointerTimestamp(day, e.clientY, rect.top, rect.height) - start,
+    };
+  };
+  const beginBodyDrag = (
+    e: React.DragEvent,
+    id: string,
+    day: string,
+    start: number,
+  ) => {
+    const track = tracks.current[day];
+    const rect = track?.getBoundingClientRect();
+    const grab = bodyGrab.current;
+    const offset =
+      grab?.id === id && grab.day === day
+        ? grab.offset
+        : rect
+          ? pointerTimestamp(day, e.clientY, rect.top, rect.height) - start
+          : 0;
+    e.dataTransfer.setData('text/life-card', id);
+    e.dataTransfer.setData(CARD_DRAG_META, encodeGrabOffset(offset));
+    e.dataTransfer.effectAllowed = 'move';
+    onDragCard(id);
+  };
+  const endBodyDrag = () => {
+    clearBodyGrab();
+    onDragCard(null);
+  };
   const drop = (e: React.DragEvent, day: string) => {
     if (!e.dataTransfer.types.includes('text/life-card')) return;
     e.preventDefault();
     e.stopPropagation();
     const id = e.dataTransfer.getData('text/life-card'),
+      grabOffset = decodeGrabOffset(e.dataTransfer.getData(CARD_DRAG_META)),
       card = allCards.find((c) => c.id === id),
       track = tracks.current[day];
     onDragCard(null);
@@ -184,7 +233,14 @@ export function CalendarGrid({
         card.start && card.end
           ? Date.parse(card.end) - Date.parse(card.start)
           : 3600000;
-    const next = dropInterval(day, e.clientY, rect.top, rect.height, duration);
+    const next = dropInterval(
+      day,
+      e.clientY,
+      rect.top,
+      rect.height,
+      duration,
+      card.placement === 'calendar' ? grabOffset : 0,
+    );
     void onSchedule(id, iso(next.start), iso(next.end));
   };
   const items = [
@@ -269,12 +325,14 @@ export function CalendarGrid({
                   type="button"
                   className="calendar-event-body"
                   draggable={item.card && !pending && !preview}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/life-card', item.id);
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragCard(item.id);
-                  }}
-                  onDragEnd={() => onDragCard(null)}
+                  onPointerDown={(e) =>
+                    captureBodyGrab(e, item.id, day, original.start)
+                  }
+                  onPointerUp={clearBodyGrab}
+                  onDragStart={(e) =>
+                    beginBodyDrag(e, item.id, day, original.start)
+                  }
+                  onDragEnd={endBodyDrag}
                   onClick={() => {
                     if (item.card) onSelectCard(item.id);
                     else {

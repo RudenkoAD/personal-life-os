@@ -331,3 +331,41 @@ test('review completion carries notes atomically with its history entry', () => 
   assert.equal(next.reviews[0].intervalDays, 7);
   assert.equal(next.reviews[0].notes, '');
 });
+test('background refresh rebases edits made during a slow read and then sends them', async () => {
+  const h = setup();
+  await h.queue.start();
+  h.server = applyAction(h.server, {
+    type: 'capture',
+    title: 'Due recurring task',
+  });
+  const gate = deferred();
+  h.deps.load = async () => {
+    await gate.promise;
+    return { state: structuredClone(h.server), applied: [] };
+  };
+  const refresh = h.queue.refresh();
+  h.queue.enqueue({ type: 'capture', title: 'My instant edit' });
+  assert.equal(h.queue.snapshot().state.cards[0].title, 'My instant edit');
+  assert.equal(h.sent.length, 0);
+  gate.resolve();
+  await refresh;
+  await until(() => h.queue.snapshot().status === 'saved');
+  assert.deepEqual(
+    h.server.cards.map((c) => c.title),
+    ['My instant edit', 'Due recurring task'],
+  );
+  h.queue.stop();
+});
+test('failed background read keeps the last state and does not block subsequent editing', async () => {
+  const h = setup();
+  await h.queue.start();
+  h.deps.load = async () => {
+    throw TypeError('offline');
+  };
+  await h.queue.refresh();
+  assert.equal(h.queue.snapshot().error, '');
+  h.queue.enqueue({ type: 'capture', title: 'Continue working' });
+  await until(() => h.queue.snapshot().status === 'saved');
+  assert.equal(h.server.cards[0].title, 'Continue working');
+  h.queue.stop();
+});

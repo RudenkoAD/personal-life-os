@@ -284,6 +284,27 @@ export class SyncQueue {
       this.working = false;
     }
   }
+  async refresh() {
+    if (
+      this.working ||
+      this.stopped ||
+      this.timer ||
+      this.error ||
+      this.jobs.length ||
+      !this.base
+    )
+      return;
+    this.working = true;
+    try {
+      await this.reconcile();
+    } catch (e) {
+      // Background reads may fail offline. Local edits remain available.
+      if (e instanceof ApiError && e.needsSignIn) this.block(e, false);
+    } finally {
+      this.working = false;
+    }
+    void this.pump();
+  }
   async retry() {
     if (this.working || this.stopped) return;
     if (this.timer) {

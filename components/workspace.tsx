@@ -51,6 +51,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
+import { ScopesSettings } from '@/components/scopes-settings';
+import { RecurringPanel } from '@/components/recurring-panel';
 import { CalendarGrid } from '@/components/calendar-grid';
 import { useSyncedDraft } from '@/hooks/use-synced-draft';
 import { SyncQueue, type SyncSnapshot } from '@/lib/sync-queue';
@@ -130,6 +132,7 @@ type View =
   | 'calendar'
   | 'projects'
   | 'reviews'
+  | 'recurring'
   | 'settings'
   | 'agent';
 type NewForm = {
@@ -329,6 +332,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     void queue.start();
     const online = () => {
       if (queue.snapshot().count || queue.snapshot().error) void queue.retry();
+      else void queue.refresh();
     };
     const leaving = (e: BeforeUnloadEvent) => {
       if (queue.snapshot().count) {
@@ -336,15 +340,28 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
         e.returnValue = '';
       }
     };
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void queue.refresh();
+    };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
     window.addEventListener('online', online);
     window.addEventListener('beforeunload', leaving);
     return () => {
       queue.stop();
       queueRef.current = null;
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('online', online);
       window.removeEventListener('beforeunload', leaving);
     };
   }, [ownerId, update]);
+  useEffect(() => {
+    if (state && scope !== 'all' && !state.tags.some((tag) => tag.id === scope))
+      setScope('all');
+  }, [state, scope]);
   const focusInboxCapture = useCallback(() => {
     setNavigationOpen(false);
     setView('inbox');
@@ -662,7 +679,8 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
   const navItems: [View, string, typeof Inbox][] = [
     ['board', 'Рабочее пространство', PanelsTopLeft],
     ['projects', 'Проекты', Layers],
-    ['reviews', 'Обзоры', Repeat2],
+    ['reviews', 'Обзоры', ListChecks],
+    ['recurring', 'Рекуррентные', Repeat2],
   ];
   const titles: Record<View, string> = {
     board: board?.title ?? 'Моя доска',
@@ -670,6 +688,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     calendar: 'Календарь',
     projects: 'Проекты',
     reviews: 'Время свериться с собой',
+    recurring: 'Рекуррентные дела',
     settings: 'Календари и настройки',
     agent: 'Ваш агент',
   };
@@ -1174,13 +1193,10 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
               <div className="nav-section-head">
                 <p className="nav-label">СФЕРЫ ЖИЗНИ</p>
                 <button
-                  aria-label="Добавить тег"
-                  onClick={() => {
-                    setNavigationOpen(false);
-                    setNewForm({ kind: 'tag', title: '' });
-                  }}
+                  aria-label="Настроить сферы жизни"
+                  onClick={() => navigate('settings')}
                 >
-                  <Plus size={15} />
+                  <Settings2 size={15} />
                 </button>
               </div>
               <div className="scope-nav">
@@ -1384,9 +1400,11 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                         ? 'Большие замыслы начинаются с небольших шагов.'
                         : view === 'reviews'
                           ? 'Постоянные списки помогают помнить о важных сферах.'
-                          : view === 'agent'
-                            ? 'Доступ к вашим задачам через общие правила приложения.'
-                            : 'Внешние события рядом с вашими планами.'}
+                          : view === 'recurring'
+                            ? 'Новая задача — когда закончится отсчёт после предыдущей.'
+                            : view === 'agent'
+                              ? 'Доступ к вашим задачам через общие правила приложения.'
+                              : 'Сферы жизни и внешние календари.'}
                     </p>
                   </div>
                   {view === 'projects' && (
@@ -1424,29 +1442,31 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                     </button>
                   )}
                 </div>
-                <form className="capture" onSubmit={submitCapture}>
-                  <span className="capture-icon">
-                    <Plus size={19} />
-                  </span>
-                  <input
-                    ref={captureRef}
-                    aria-label="Быстрый захват во входящие"
-                    placeholder="Что нужно сделать? Запишите, разберётесь позже…"
-                    value={capture}
-                    maxLength={200}
-                    onChange={(e) => setCapture(e.target.value)}
-                    disabled={!state}
-                  />
-                  <kbd>⌘ K</kbd>
-                  <button
-                    className="capture-submit"
-                    type="submit"
-                    disabled={pending || !capture.trim() || !state}
-                    aria-label="Отправить во входящие"
-                  >
-                    <CornerDownLeft size={19} />
-                  </button>
-                </form>
+                {(view === 'projects' || view === 'reviews') && (
+                  <form className="capture" onSubmit={submitCapture}>
+                    <span className="capture-icon">
+                      <Plus size={19} />
+                    </span>
+                    <input
+                      ref={captureRef}
+                      aria-label="Быстрый захват во входящие"
+                      placeholder="Что нужно сделать? Запишите, разберётесь позже…"
+                      value={capture}
+                      maxLength={200}
+                      onChange={(e) => setCapture(e.target.value)}
+                      disabled={!state}
+                    />
+                    <kbd>⌘ K</kbd>
+                    <button
+                      className="capture-submit"
+                      type="submit"
+                      disabled={pending || !capture.trim() || !state}
+                      aria-label="Отправить во входящие"
+                    >
+                      <CornerDownLeft size={19} />
+                    </button>
+                  </form>
+                )}
               </>
             )}
             {!isDockView && feedback}
@@ -1593,8 +1613,16 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                       ))}
                     </div>
                   )}
+                  {view === 'recurring' && (
+                    <RecurringPanel
+                      state={state}
+                      act={act}
+                      openCard={setSelected}
+                    />
+                  )}
                   {view === 'settings' && (
                     <div className="settings-stack">
+                      <ScopesSettings tags={state.tags} act={act} />
                       <section className="settings-card">
                         <div className="section-heading">
                           <CalendarDays size={21} />
