@@ -41,6 +41,83 @@ test('validates host policy and rejects unsafe URL forms', () => {
     assert.throws(() => validateCalDavUrl(value, ['evil.example']));
 });
 
+test('work Yandex CalDAV is allowed only on its exact HTTPS origin', () => {
+  const origin = 'https://caldav-mob.yandex-team.ru';
+  assert.equal(validateCalDavUrl(origin), origin + '/');
+  assert.equal(
+    validateCalDavUrl(origin + '/calendars/fixture/'),
+    origin + '/calendars/fixture/',
+  );
+  for (const value of [
+    'http://caldav-mob.yandex-team.ru',
+    'https://caldav-mob.yandex-team.ru.evil.example',
+    'https://other.yandex-team.ru',
+    'https://caldav-mob.yandex-team.ru:444',
+    'https://user:password@caldav-mob.yandex-team.ru',
+  ])
+    assert.throws(() => validateCalDavUrl(value));
+});
+
+test('work Yandex discovery follows same-origin principal/home and reads a collection', async () => {
+  const origin = 'https://caldav-mob.yandex-team.ru',
+    seen = [];
+  const fetcher = async (url, options) => {
+    seen.push({ url, options });
+    if (options.method === 'REPORT')
+      return ok(
+        multi(
+          response(
+            '/calendars/fixture/main/one.ics',
+            '<c:calendar-data><![CDATA[' + ics + ']]></c:calendar-data>',
+          ),
+        ),
+      );
+    if (url === origin + '/')
+      return ok(
+        multi(
+          response(
+            '/',
+            '<d:current-user-principal><d:href>/principals/fixture/</d:href></d:current-user-principal>',
+          ),
+        ),
+      );
+    if (url === origin + '/principals/fixture/')
+      return ok(
+        multi(
+          response(
+            '/principals/fixture/',
+            '<c:calendar-home-set><d:href>/calendars/fixture/</d:href></c:calendar-home-set>',
+          ),
+        ),
+      );
+    return ok(multi(response('/calendars/fixture/main/', calProps('Рабочий'))));
+  };
+  const input = {
+    url: origin,
+    username: 'fixture',
+    password: 'fixture-password',
+  };
+  const calendars = await discoverCalendars(input, [], fetcher);
+  assert.deepEqual(calendars, [
+    { url: origin + '/calendars/fixture/main/', title: 'Рабочий' },
+  ]);
+  const events = await fetchCalDavEvents(
+    { ...input, url: calendars[0].url },
+    'work-fixture',
+    [],
+    fetcher,
+    new Date('2026-09-08T00:00:00Z'),
+  );
+  assert.equal(events.length, 1);
+  for (const call of seen) {
+    assert.equal(new URL(call.url).origin, origin);
+    assert.equal(
+      call.options.headers.Authorization,
+      auth(input.username, input.password),
+    );
+  }
+});
+
 test('discovers a direct calendar collection and resolves a relative href', async () => {
   const seen = [];
   const fetcher = async (url, options) => {

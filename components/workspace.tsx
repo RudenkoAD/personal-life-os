@@ -2574,6 +2574,13 @@ function ImportCalendar({
                     required={mode === 'caldav'}
                   />
                 </label>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setUrl('https://caldav-mob.yandex-team.ru')}
+                >
+                  Рабочий Яндекс
+                </button>
                 <label>
                   Имя пользователя
                   <input
@@ -2585,7 +2592,7 @@ function ImportCalendar({
                   />
                 </label>
                 <label>
-                  Пароль приложения
+                  Пароль приложения или токен
                   <input
                     type="password"
                     value={password}
@@ -2596,9 +2603,10 @@ function ImportCalendar({
                   />
                 </label>
                 <p className="setting-footnote">
-                  Яндекс, iCloud и Fastmail. Для другого сервера его домен нужно
-                  разрешить в настройках сервера приложения. Пароль хранится
-                  зашифрованным на сервере. События доступны только для чтения.
+                  Яндекс, рабочий Яндекс, iCloud и Fastmail. Для другого сервера
+                  его домен нужно разрешить в настройках сервера приложения.
+                  Пароль хранится зашифрованным на сервере. События доступны
+                  только для чтения.
                 </p>
                 <button
                   type="button"

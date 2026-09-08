@@ -8,6 +8,7 @@ const DAV = 'DAV:',
 const BUILTIN = new Set([
   'caldav.yandex.ru',
   'caldav.yandex.com',
+  'caldav-mob.yandex-team.ru',
   'caldav.icloud.com',
   'caldav.fastmail.com',
 ]);
