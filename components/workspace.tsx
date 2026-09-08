@@ -568,20 +568,32 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
       }}
       onDragEnd={endDrag}
     >
-      <div className="card-kind">
-        <span>
-          {c.type === 'project' ? (
-            <Layers size={13} />
-          ) : c.type === 'sequence' ? (
-            <ListChecks size={13} />
-          ) : (
-            <Circle size={12} />
-          )}{' '}
-          {labels[c.type]}
-        </span>
-        <GripVertical size={14} />
-      </div>
+      {!compact && (
+        <div className="card-kind">
+          <span>
+            {c.type === 'project' ? (
+              <Layers size={13} />
+            ) : c.type === 'sequence' ? (
+              <ListChecks size={13} />
+            ) : (
+              <Circle size={12} />
+            )}{' '}
+            {labels[c.type]}
+          </span>
+          <GripVertical size={14} />
+        </div>
+      )}
       <button className="card-title" onClick={() => setSelected(c.id)}>
+        {compact && c.type !== 'task' && (
+          <span className="inbox-card-kind" title={labels[c.type]}>
+            {c.type === 'project' ? (
+              <Layers size={14} />
+            ) : (
+              <ListChecks size={14} />
+            )}
+            <span className="sr-only">{labels[c.type]}: </span>
+          </span>
+        )}
         {c.title}
       </button>
       {c.type === 'sequence' && c.steps.length > 0 && (
@@ -643,8 +655,15 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
             className="inbox-move-button"
             disabled={pending}
             aria-label={`Переместить «${c.title}» на доску «${board.title}»`}
+            title={`На доску «${board.title}»`}
           >
-            <PanelsTopLeft size={14} /> На доску <ArrowRight size={14} />
+            {compact ? (
+              <ArrowRight size={16} />
+            ) : (
+              <>
+                <PanelsTopLeft size={14} /> На доску <ArrowRight size={14} />
+              </>
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent className="inbox-move-menu" align="start">
             <DropdownMenuGroup>

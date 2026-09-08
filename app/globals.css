@@ -2638,7 +2638,7 @@ p {
 .board-inbox-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   min-height: 220px;
@@ -2669,6 +2669,77 @@ p {
 }
 .inbox-move-button:hover {
   color: #485cdd;
+}
+.board-inbox .task-card.compact {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+.board-inbox .compact .card-title {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  min-width: 0;
+  min-height: 28px;
+  margin: 0;
+  line-height: 1.45;
+}
+.inbox-card-kind {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 6px;
+  color: #8490a5;
+}
+.board-inbox .compact .card-bottom {
+  display: contents;
+}
+.board-inbox .compact .tags,
+.board-inbox .compact .card-progress,
+.board-inbox .compact .project-link {
+  grid-column: 2 / -1;
+  min-width: 0;
+  margin: 0;
+}
+.board-inbox .compact .tags:empty {
+  display: none;
+}
+.board-inbox .compact .tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 2px 5px;
+}
+.board-inbox .compact .done-toggle {
+  grid-column: 1;
+  grid-row: 1;
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+}
+.board-inbox .compact .inbox-move-button {
+  grid-column: 3;
+  grid-row: 1;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+}
+.board-inbox .compact .inbox-move-button svg {
+  margin: 0;
+}
+.board-inbox .compact .inbox-move-button:hover {
+  background: #f0f4fe;
+}
+.board-inbox
+  .compact
+  :is(.card-title, .done-toggle, .inbox-move-button):focus-visible {
+  outline: 2px solid #536abd;
+  outline-offset: 2px;
 }
 .inbox-move-menu {
   min-width: 230px;
