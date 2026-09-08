@@ -27,6 +27,7 @@ async function readState(owner: string): Promise<LifeState> {
   if (!row) throw new Error('Storage unavailable');
   const state: LifeState = JSON.parse(row.data);
   state.recurrences ??= [];
+  state.calendarSeries ??= [];
   return state;
 }
 export async function loadState(

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -53,7 +54,12 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { ScopesSettings } from '@/components/scopes-settings';
-import { RecurringPanel } from '@/components/recurring-panel';
+import { RecurringHub } from '@/components/recurring-hub';
+import {
+  CalendarEventEditor,
+  type EventEditorTarget,
+} from '@/components/calendar-event-editor';
+import { expandEventSeries } from '@/lib/calendar-events';
 import { CalendarGrid } from '@/components/calendar-grid';
 import { useSyncedDraft } from '@/hooks/use-synced-draft';
 import { SyncQueue, type SyncSnapshot } from '@/lib/sync-queue';
@@ -255,6 +261,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
   const [inboxCapture, setInboxCapture] = useState(''),
     [selected, setSelected] = useState<string | null>(null),
     [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null),
+    [eventEditor, setEventEditor] = useState<EventEditorTarget | null>(null),
     [newForm, setNewForm] = useState<NewForm | null>(null),
     [importOpen, setImportOpen] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
@@ -449,7 +456,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
   const visible = state?.cards.filter(matches) ?? [],
     inbox = visible.filter((c) => c.placement === 'inbox'),
     scheduled = visible.filter((c) => c.placement === 'calendar');
-  const events =
+  const importedEvents =
     state?.events.filter(
       (e) =>
         state.sources.some((s) => s.id === e.sourceId && s.enabled) &&
@@ -677,7 +684,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     calendar: 'Календарь',
     projects: 'Проекты',
     reviews: 'Обзоры',
-    recurring: 'Рекуррентные дела',
+    recurring: 'Рекуррентные',
     settings: 'Настройки',
     agent: 'Ваш агент',
   };
@@ -688,6 +695,54 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     calendarMode === 'day'
       ? [day]
       : Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const windowStart = days[0],
+    windowEnd = addDays(days.at(-1)!, 1);
+  const localCalendar = useMemo(() => {
+    try {
+      return {
+        events: expandEventSeries(
+          state?.calendarSeries ?? [],
+          windowStart,
+          windowEnd,
+        ),
+        error: '',
+      };
+    } catch (error) {
+      return { events: [] as CalendarEvent[], error: (error as Error).message };
+    }
+  }, [state?.calendarSeries, windowStart, windowEnd]);
+  const events = [...importedEvents, ...localCalendar.events.filter(matches)];
+  const openEvent = (event: CalendarEvent) => {
+    if (event.seriesId)
+      setEventEditor({
+        seriesId: event.seriesId,
+        occurrenceDate: event.occurrenceDate,
+        date: dateKey(new Date(event.start)),
+      });
+    else setSelectedEvent(event);
+  };
+  const scheduleEvent = (event: CalendarEvent, start: string, end: string) => {
+    const series = state?.calendarSeries?.find(
+      (series) => series.id === event.seriesId,
+    );
+    if (!series) return Promise.resolve(false);
+    const patch = {
+      startDate: dateKey(new Date(start)),
+      startTime: clock(start),
+      durationMinutes: (Date.parse(end) - Date.parse(start)) / 60000,
+    };
+    return act(
+      series.repeat.frequency === 'none'
+        ? { type: 'event.update', id: series.id, ...patch }
+        : {
+            type: 'event.override',
+            id: series.id,
+            occurrenceDate: event.occurrenceDate,
+            patch,
+          },
+      'Время события изменено',
+    );
+  };
   const isDockView =
     view === 'board' || view === 'inbox' || view === 'calendar';
   const inboxPanel =
@@ -955,6 +1010,13 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
               : ''}
           </b>
         </div>
+        <button
+          className="quiet-button calendar-event-create"
+          onClick={() => setEventEditor({ date: day })}
+        >
+          <Plus size={15} />
+          Событие
+        </button>
         <SelectBox
           value={calendarMode}
           onChange={setCalendarMode}
@@ -993,7 +1055,14 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
               день
             </div>
             {days.map((d) => (
-              <div key={'all-' + d} className="all-day-cell">
+              <div
+                key={'all-' + d}
+                className="all-day-cell"
+                onDoubleClick={(e) => {
+                  if (e.target === e.currentTarget)
+                    setEventEditor({ date: d, allDay: true });
+                }}
+              >
                 {events
                   .filter(
                     (e) =>
@@ -1002,7 +1071,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                       dateKey(new Date(e.end)) > d,
                   )
                   .map((e) => (
-                    <button key={e.id} onClick={() => setSelectedEvent(e)}>
+                    <button key={e.id} onClick={() => openEvent(e)}>
                       {e.title}
                     </button>
                   ))}
@@ -1019,17 +1088,28 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                 act({ type: 'schedule', id, start, end }, 'Время изменено')
               }
               onSelectCard={setSelected}
-              onSelectEvent={setSelectedEvent}
+              onScheduleEvent={scheduleEvent}
+              onCreateEvent={(date, time) => setEventEditor({ date, time })}
+              onSelectEvent={openEvent}
               onDragCard={(id) => (id ? setDragged(id) : endDrag())}
             />
           </div>
         </div>
       </div>
+      {localCalendar.error && (
+        <p role="alert" className="event-error">
+          {localCalendar.error}
+        </p>
+      )}
       <div className="calendar-sources">
         <span>Календари:</span>
         <span>
           <ScopeDot color="#6677dd" />
           Мои задачи
+        </span>
+        <span>
+          <ScopeDot color="#8d68b5" />
+          Мои события
         </span>
         {state.sources.map((s) => (
           <label key={s.id} className="checkbox-label">
@@ -1562,7 +1642,10 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                     </div>
                   )}
                   {view === 'recurring' && (
-                    <RecurringPanel
+                    <RecurringHub
+                      openEvent={setEventEditor}
+                      query={query}
+                      scope={scope}
                       state={state}
                       act={act}
                       openCard={setSelected}
@@ -1811,6 +1894,14 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
           )}
         </SheetContent>
       </Sheet>
+      {state && eventEditor && (
+        <CalendarEventEditor
+          state={state}
+          target={eventEditor}
+          act={act}
+          close={() => setEventEditor(null)}
+        />
+      )}
       <ImportCalendar
         tags={state?.tags ?? []}
         open={importOpen}

@@ -39,6 +39,8 @@ export type LayoutInput = {
   end: string;
   title: string;
   card: boolean;
+  editable?: boolean;
+  seriesId?: string;
   color: string;
   done?: boolean;
 };

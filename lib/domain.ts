@@ -1,4 +1,6 @@
 import { reconcileRecurrenceWaits } from './recurrences.ts';
+import type { EventSeries } from './calendar-events.ts';
+import { applyCalendarEventAction } from './calendar-event-actions.ts';
 export type CardType = 'task' | 'sequence' | 'project';
 export type Placement = 'inbox' | 'board' | 'calendar';
 export interface Step {
@@ -77,6 +79,9 @@ export interface CalendarEvent {
   allDay: boolean;
   tags: string[];
   location: string;
+  notes?: string;
+  seriesId?: string;
+  occurrenceDate?: string;
 }
 export interface LifeState {
   revision: number;
@@ -85,6 +90,7 @@ export interface LifeState {
   tags: Scope[];
   reviews: Review[];
   recurrences: RecurringRule[];
+  calendarSeries: EventSeries[];
   sources: Source[];
   events: CalendarEvent[];
   history: { at: string; text: string; actor: string }[];
@@ -178,6 +184,7 @@ export function initialState(now = new Date()): LifeState {
     ],
     sources: [],
     recurrences: [],
+    calendarSeries: [],
     events: [],
     history: [],
   };
@@ -259,6 +266,7 @@ export function applyAction(
   const s = structuredClone(input),
     now = nowDate.toISOString();
   s.recurrences ??= [];
+  s.calendarSeries ??= [];
   let message = 'Обновлено';
   if (!a || typeof a.type !== 'string') fail('Неизвестное действие');
   switch (a.type) {
@@ -458,9 +466,26 @@ export function applyAction(
         ...s.events,
         ...s.sources,
         ...s.recurrences,
+        ...s.calendarSeries,
       ])
         item.tags = item.tags.filter((id) => id !== tag.id);
+      for (const series of s.calendarSeries)
+        for (const exception of Object.values(series.exceptions))
+          if (exception.tags)
+            exception.tags = exception.tags.filter((id) => id !== tag.id);
       message = `Сфера удалена: ${tag.title}`;
+      break;
+    }
+    case 'event.create':
+    case 'event.update':
+    case 'event.override':
+    case 'event.restore':
+    case 'event.delete': {
+      try {
+        message = applyCalendarEventAction(s, a, makeId);
+      } catch (error) {
+        fail((error as Error).message);
+      }
       break;
     }
     case 'recurrence.create':
@@ -667,7 +692,8 @@ export function applyAction(
     s.boards.length > 200 ||
     s.tags.length > 100 ||
     s.reviews.length > 100 ||
-    s.recurrences.length > 100
+    s.recurrences.length > 100 ||
+    s.calendarSeries.length > 100
   )
     fail('Достигнут лимит пространства');
   reconcileRecurrenceWaits(s, nowDate);

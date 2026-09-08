@@ -369,3 +369,37 @@ test('failed background read keeps the last state and does not block subsequent 
   assert.equal(h.server.cards[0].title, 'Continue working');
   h.queue.stop();
 });
+
+test('fixed series and occurrence edits remain interactive while acknowledgement waits', async () => {
+  const gate = deferred(),
+    h = setup();
+  const send = h.deps.send;
+  h.deps.send = async (...args) => {
+    await gate.promise;
+    return send(...args);
+  };
+  await h.queue.start();
+  h.queue.enqueue({
+    type: 'event.create',
+    title: 'Instant event',
+    startDate: '2026-09-08',
+    repeat: { frequency: 'weekly', interval: 1, weekdays: [2] },
+  });
+  const id = h.queue.snapshot().state.calendarSeries[0].id;
+  h.queue.enqueue({
+    type: 'event.override',
+    id,
+    occurrenceDate: '2026-09-15',
+    patch: { startTime: '12:15', durationMinutes: 90 },
+  });
+  h.queue.enqueue({ type: 'event.update', id, title: 'Renamed immediately' });
+  const projected = h.queue.snapshot().state.calendarSeries[0];
+  assert.equal(h.server.calendarSeries.length, 0);
+  assert.equal(projected.title, 'Renamed immediately');
+  assert.equal(projected.exceptions['2026-09-15'].startTime, '12:15');
+  gate.resolve();
+  await until(() => h.queue.snapshot().status === 'saved');
+  assert.deepEqual(h.server.calendarSeries[0], projected);
+  assert.deepEqual(h.stored, []);
+  h.queue.stop();
+});

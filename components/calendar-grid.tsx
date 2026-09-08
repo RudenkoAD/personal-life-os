@@ -21,6 +21,12 @@ type Props = {
   sources: LifeState['sources'];
   pending: boolean;
   onSchedule: (id: string, start: string, end: string) => Promise<boolean>;
+  onScheduleEvent: (
+    event: CalendarEvent,
+    start: string,
+    end: string,
+  ) => Promise<boolean>;
+  onCreateEvent: (day: string, time: string) => void;
   onSelectCard: (id: string) => void;
   onSelectEvent: (event: CalendarEvent) => void;
   onDragCard: (id: string | null) => void;
@@ -50,6 +56,8 @@ export function CalendarGrid({
   sources,
   pending,
   onSchedule,
+  onScheduleEvent,
+  onCreateEvent,
   onSelectCard,
   onSelectEvent,
   onDragCard,
@@ -62,6 +70,12 @@ export function CalendarGrid({
   const [preview, setPreview] = useState<(Interval & { id: string }) | null>(
     null,
   );
+  const schedule = (id: string, start: string, end: string) => {
+    const event = events.find((event) => event.id === id && event.seriesId);
+    return event
+      ? onScheduleEvent(event, start, end)
+      : onSchedule(id, start, end);
+  };
   const finish = (cancel = false) => {
     const current = drag.current;
     if (!current) return;
@@ -74,7 +88,7 @@ export function CalendarGrid({
       (current.start !== current.preview.start ||
         current.end !== current.preview.end)
     )
-      void onSchedule(
+      void schedule(
         current.id,
         iso(current.preview.start),
         iso(current.preview.end),
@@ -174,7 +188,7 @@ export function CalendarGrid({
       bounds.end,
     );
     if (next.start !== start || next.end !== end)
-      void onSchedule(id, iso(next.start), iso(next.end));
+      void schedule(id, iso(next.start), iso(next.end));
   };
   const clearBodyGrab = () => {
     bodyGrab.current = null;
@@ -209,28 +223,46 @@ export function CalendarGrid({
         : rect
           ? pointerTimestamp(day, e.clientY, rect.top, rect.height) - start
           : 0;
-    e.dataTransfer.setData('text/life-card', id);
+    const localEvent = events.some(
+      (event) => event.id === id && event.seriesId,
+    );
+    e.dataTransfer.setData(
+      localEvent ? 'text/life-event' : 'text/life-card',
+      id,
+    );
     e.dataTransfer.setData(CARD_DRAG_META, encodeGrabOffset(offset));
     e.dataTransfer.effectAllowed = 'move';
-    onDragCard(id);
+    if (!localEvent) onDragCard(id);
   };
   const endBodyDrag = () => {
     clearBodyGrab();
     onDragCard(null);
   };
   const drop = (e: React.DragEvent, day: string) => {
-    if (!e.dataTransfer.types.includes('text/life-card')) return;
+    const eventDrag = e.dataTransfer.types.includes('text/life-event');
+    if (!eventDrag && !e.dataTransfer.types.includes('text/life-card')) return;
     e.preventDefault();
     e.stopPropagation();
-    const id = e.dataTransfer.getData('text/life-card'),
+    const id = e.dataTransfer.getData(
+        eventDrag ? 'text/life-event' : 'text/life-card',
+      ),
       grabOffset = decodeGrabOffset(e.dataTransfer.getData(CARD_DRAG_META)),
       card = allCards.find((c) => c.id === id),
       track = tracks.current[day];
     onDragCard(null);
-    if (pending || !card || card.type === 'project' || !track) return;
+    const event = eventDrag
+      ? events.find((event) => event.id === id && event.seriesId)
+      : undefined;
+    if (
+      pending ||
+      !track ||
+      (eventDrag ? !event : !card || card.type === 'project')
+    )
+      return;
     const rect = track.getBoundingClientRect(),
-      duration =
-        card.start && card.end
+      duration = event
+        ? Date.parse(event.end) - Date.parse(event.start)
+        : card?.start && card.end
           ? Date.parse(card.end) - Date.parse(card.start)
           : 3600000;
     const next = dropInterval(
@@ -239,9 +271,9 @@ export function CalendarGrid({
       rect.top,
       rect.height,
       duration,
-      card.placement === 'calendar' ? grabOffset : 0,
+      eventDrag || card?.placement === 'calendar' ? grabOffset : 0,
     );
-    void onSchedule(id, iso(next.start), iso(next.end));
+    void schedule(id, iso(next.start), iso(next.end));
   };
   const items = [
     ...scheduled
@@ -252,6 +284,8 @@ export function CalendarGrid({
         start: c.start!,
         end: c.end!,
         card: true,
+        editable: true,
+        seriesId: undefined,
         done: c.done,
         color: '#6677dd',
       })),
@@ -260,7 +294,11 @@ export function CalendarGrid({
       .map((e) => ({
         ...e,
         card: false,
-        color: sources.find((s) => s.id === e.sourceId)?.color ?? '#3e9a82',
+        editable: Boolean(e.seriesId),
+        done: false,
+        color: e.seriesId
+          ? '#8d68b5'
+          : (sources.find((s) => s.id === e.sourceId)?.color ?? '#3e9a82'),
       })),
   ];
   return (
@@ -285,12 +323,29 @@ export function CalendarGrid({
             tracks.current[day] = node;
           }}
           onDragOver={(e) => {
-            if (!pending && e.dataTransfer.types.includes('text/life-card')) {
+            if (
+              !pending &&
+              (e.dataTransfer.types.includes('text/life-card') ||
+                e.dataTransfer.types.includes('text/life-event'))
+            ) {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
             }
           }}
           onDrop={(e) => drop(e, day)}
+          onDoubleClick={(e) => {
+            if (e.target !== e.currentTarget || pending) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const next = dropInterval(
+              day,
+              e.clientY,
+              rect.top,
+              rect.height,
+              3600000,
+              0,
+            );
+            onCreateEvent(day, clock(next.start));
+          }}
         >
           {buildDayLayout(day, items).map((item) => {
             const original = {
@@ -324,7 +379,7 @@ export function CalendarGrid({
                 <button
                   type="button"
                   className="calendar-event-body"
-                  draggable={item.card && !pending && !preview}
+                  draggable={item.editable && !pending && !preview}
                   onPointerDown={(e) =>
                     captureBodyGrab(e, item.id, day, original.start)
                   }
@@ -345,10 +400,11 @@ export function CalendarGrid({
                   <b>{item.title}</b>
                   <small>
                     {clock(p.start)}–{clock(p.end)}
-                    {!item.card && ' · внешний'}
+                    {!item.card &&
+                      (item.seriesId ? ' · событие' : ' · внешний')}
                   </small>
                 </button>
-                {item.card &&
+                {item.editable &&
                   (['start', 'end'] as const)
                     .filter((edge) =>
                       edge === 'start' ? item.first : item.last,

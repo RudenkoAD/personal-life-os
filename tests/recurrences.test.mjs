@@ -225,6 +225,7 @@ test('legacy workspace load normalizes missing recurrences', async () => {
   const owner = uid('legacy');
   const state = initialState(at('2026-09-01T09:00:00.000'));
   delete state.recurrences;
+  delete state.calendarSeries;
   await rawDb()
     .prepare(
       'INSERT INTO workspaces (owner_id, revision, data, updated_at) VALUES (?, ?, ?, ?)',
@@ -238,6 +239,7 @@ test('legacy workspace load normalizes missing recurrences', async () => {
     .run();
   const loaded = await loadState(owner, at('2026-09-01T09:00:00.000'));
   assert.deepEqual(loaded.recurrences, []);
+  assert.deepEqual(loaded.calendarSeries, []);
 });
 
 test('concurrent load materializes one occurrence under CAS', async () => {
