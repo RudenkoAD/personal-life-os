@@ -48,7 +48,7 @@ export interface Source {
   title: string;
   color: string;
   enabled: boolean;
-  kind: 'file' | 'feed';
+  kind: 'file' | 'feed' | 'caldav';
   tags: string[];
   lastSynced: string;
   error?: string;

@@ -15,6 +15,16 @@ export const feeds = sqliteTable(
   },
   (t) => [index('idx_feeds_owner').on(t.ownerId)],
 );
+export const caldavConnections = sqliteTable(
+  'caldav_connections',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id').notNull(),
+    url: text('url').notNull(),
+    credentials: text('credentials').notNull(),
+  },
+  (t) => [index('idx_caldav_owner').on(t.ownerId)],
+);
 export const tokens = sqliteTable(
   'agent_tokens',
   {

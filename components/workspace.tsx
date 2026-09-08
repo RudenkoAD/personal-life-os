@@ -51,6 +51,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
+import { CalendarGrid } from '@/components/calendar-grid';
+import { apiRequest, ApiError } from '@/lib/api-client';
 import DockWorkspace from '@/components/dock-workspace';
 import type { DockPanelId } from '@/lib/dock-layout';
 import {
@@ -246,7 +248,8 @@ export default function Workspace() {
     busy = useRef(false),
     [loadError, setLoadError] = useState(''),
     [notice, setNotice] = useState(''),
-    [failure, setFailure] = useState('');
+    [failure, setFailure] = useState(''),
+    [needsSignIn, setNeedsSignIn] = useState(false);
   const [capture, setCapture] = useState(''),
     [inboxCapture, setInboxCapture] = useState(''),
     captureRef = useRef<HTMLInputElement>(null),
@@ -270,14 +273,13 @@ export default function Workspace() {
   }, []);
   const reload = useCallback(async () => {
     try {
-      const r = await fetch('/api/state');
-      const data = (await r.json()) as LifeState & { error?: string };
-      if (!r.ok)
-        throw new Error(data.error ?? 'Не удалось загрузить пространство');
+      const data = await apiRequest<LifeState>('/api/state');
+      setNeedsSignIn(false);
       update(data);
       setLoadError('');
     } catch (e) {
       setLoadError((e as Error).message);
+      setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
     } finally {
       setLoading(false);
     }
@@ -324,23 +326,17 @@ export default function Workspace() {
       setPending(true);
       setFailure('');
       try {
-        const r = await fetch(path, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...payload,
-            revision: stateRef.current.revision,
-          }),
+        const data = await apiRequest<LifeState>(path, {
+          ...payload,
+          revision: stateRef.current.revision,
         });
-        const data = (await r.json()) as LifeState & { error?: string };
-        if (!r.ok) {
-          if (r.status === 409) await reload();
-          throw new Error(data.error ?? 'Не удалось сохранить');
-        }
+        setNeedsSignIn(false);
         update(data);
         if (success) setNotice(success);
         return true;
       } catch (e) {
+        if (e instanceof ApiError && e.status === 409) await reload();
+        setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
         setFailure((e as Error).message);
         return false;
       } finally {
@@ -359,7 +355,7 @@ export default function Workspace() {
     const t = setInterval(async () => {
       for (const source of stateRef.current?.sources ?? []) {
         if (
-          source.kind === 'feed' &&
+          source.kind !== 'file' &&
           Date.now() - Date.parse(source.lastSynced) > 15 * 60000 &&
           Date.now() - (lastSyncAttempt.current[source.id] ?? 0) > 15 * 60000 &&
           !busy.current
@@ -499,28 +495,6 @@ export default function Workspace() {
         { type: 'move', id, boardId: board.id, columnId: col },
         'Карточка перемещена',
       );
-  };
-  const scheduleDrop = (e: React.DragEvent, date: string, hour: number) => {
-    e.preventDefault();
-    const id = e.dataTransfer.getData('text/life-card');
-    endDrag();
-    if (!id || pending) return;
-    const c = state?.cards.find((c) => c.id === id);
-    if (!c || c.type === 'project') return;
-    const start = new Date(
-      `${date}T${String(hour).padStart(2, '0')}:00:00+03:00`,
-    );
-    const duration =
-      c?.start && c.end ? Date.parse(c.end) - Date.parse(c.start) : 3600000;
-    void act(
-      {
-        type: 'schedule',
-        id,
-        start: start.toISOString(),
-        end: new Date(start.getTime() + duration).toISOString(),
-      },
-      'Время запланировано',
-    );
   };
   const cardTile = (c: Card, compact = false) => (
     <article
@@ -980,25 +954,20 @@ export default function Workspace() {
                   ))}
               </div>
             ))}
-            {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
-              <CalendarRow
-                key={hour}
-                hour={hour}
-                days={days}
-                scheduled={scheduled}
-                events={events}
-                state={state}
-                scheduleDrop={scheduleDrop}
-                setSelected={setSelected}
-                setSelectedEvent={setSelectedEvent}
-                setDragged={setDragged}
-                endDrag={endDrag}
-                pending={pending}
-                dropTarget={dropTarget}
-                acceptDrop={acceptDrop}
-                leaveDrop={leaveDrop}
-              />
-            ))}
+            <CalendarGrid
+              days={days}
+              scheduled={scheduled}
+              allCards={state.cards}
+              events={events}
+              sources={state.sources}
+              pending={pending}
+              onSchedule={(id, start, end) =>
+                act({ type: 'schedule', id, start, end }, 'Время изменено')
+              }
+              onSelectCard={setSelected}
+              onSelectEvent={setSelectedEvent}
+              onDragCard={(id) => (id ? setDragged(id) : endDrag())}
+            />
           </div>
         </div>
       </div>
@@ -1030,8 +999,9 @@ export default function Workspace() {
         </button>
       </div>
       <p className="muted calendar-hint">
-        Перетащите задачу на нужный час. Время Москвы. Внешние события — только
-        для чтения.
+        Перетащите задачу на нужное время. Потяните верхнюю или нижнюю границу,
+        чтобы изменить длительность с шагом 15 минут. Время Москвы; внешние
+        события — только для чтения.
       </p>
     </div>
   ) : null;
@@ -1040,6 +1010,7 @@ export default function Workspace() {
       {failure && (
         <div className="error-banner" role="alert">
           <span>{failure}</span>
+          {needsSignIn && <a href="/">Войти снова</a>}
           <button aria-label="Закрыть ошибку" onClick={() => setFailure('')}>
             <X size={16} />
           </button>
@@ -1564,9 +1535,11 @@ export default function Workspace() {
                               <div>
                                 <b>{s.title}</b>
                                 <small>
-                                  {s.kind === 'feed'
-                                    ? 'Подписка ICS'
-                                    : 'Импорт файла'}{' '}
+                                  {s.kind === 'caldav'
+                                    ? 'CalDAV'
+                                    : s.kind === 'feed'
+                                      ? 'Подписка ICS'
+                                      : 'Импорт файла'}{' '}
                                   ·{' '}
                                   {
                                     state.events.filter(
@@ -1585,7 +1558,7 @@ export default function Workspace() {
                                   void act({ type: 'source.toggle', id: s.id })
                                 }
                               />
-                              {s.kind === 'feed' && (
+                              {s.kind !== 'file' && (
                                 <button
                                   className="icon-btn"
                                   aria-label={`Обновить ${s.title}`}
@@ -1831,113 +1804,6 @@ export default function Workspace() {
         }
       />
     </SidebarProvider>
-  );
-}
-function CalendarRow({
-  hour,
-  days,
-  scheduled,
-  events,
-  state,
-  scheduleDrop,
-  setSelected,
-  setSelectedEvent,
-  setDragged,
-  endDrag,
-  pending,
-  dropTarget,
-  acceptDrop,
-  leaveDrop,
-}: {
-  pending: boolean;
-  dropTarget: string | null;
-  endDrag: () => void;
-  acceptDrop: (e: React.DragEvent, target: string) => void;
-  leaveDrop: (e: React.DragEvent) => void;
-  hour: number;
-  days: string[];
-  scheduled: Card[];
-  events: CalendarEvent[];
-  state: LifeState;
-  scheduleDrop: (e: React.DragEvent, d: string, h: number) => void;
-  setSelected: (id: string) => void;
-  setSelectedEvent: (e: CalendarEvent) => void;
-  setDragged: (id: string | null) => void;
-}) {
-  return (
-    <>
-      <div className="time-label">{String(hour).padStart(2, '0')}:00</div>
-      {days.map((d) => {
-        const begin = Date.parse(
-            `${d}T${String(hour).padStart(2, '0')}:00:00+03:00`,
-          ),
-          end = begin + 3600000;
-        const all = [
-          ...scheduled
-            .filter((c) => c.start && c.end)
-            .map((c) => ({
-              id: c.id,
-              start: c.start!,
-              end: c.end!,
-              title: c.title,
-              color: '#6677dd',
-              card: true,
-              done: c.done,
-            })),
-          ...events
-            .filter((e) => !e.allDay)
-            .map((e) => ({
-              ...e,
-              color:
-                state.sources.find((s) => s.id === e.sourceId)?.color ??
-                '#3e9a82',
-              card: false,
-              done: false,
-            })),
-        ].filter((e) => Date.parse(e.start) < end && Date.parse(e.end) > begin);
-        return (
-          <div
-            className={`calendar-cell ${dropTarget === `calendar:${d}:${hour}` ? 'drop-active' : ''}`}
-            key={d}
-            onDragOver={(e) => acceptDrop(e, `calendar:${d}:${hour}`)}
-            onDragLeave={leaveDrop}
-            onDrop={(e) => scheduleDrop(e, d, hour)}
-          >
-            {all.map((e) => (
-              <button
-                className={`time-event ${e.done ? 'completed' : ''}`}
-                key={e.id}
-                style={{
-                  background: e.color + '15',
-                  borderLeftColor: e.color,
-                  color: e.color,
-                }}
-                draggable={e.card && !pending}
-                onDragStart={(ev) => {
-                  if (e.card) {
-                    ev.dataTransfer.setData('text/life-card', e.id);
-                    ev.dataTransfer.effectAllowed = 'move';
-                    setDragged(e.id);
-                  }
-                }}
-                onDragEnd={endDrag}
-                onClick={() =>
-                  e.card
-                    ? setSelected(e.id)
-                    : setSelectedEvent(events.find((x) => x.id === e.id)!)
-                }
-              >
-                <b>{e.title}</b>
-                <small>
-                  {clock(e.start)}–{clock(e.end)}
-                  {!e.card ? ' · внешний' : ''}
-                </small>
-              </button>
-            ))}
-          </div>
-        );
-      })}
-    </>
   );
 }
 function CardDetails({
@@ -2476,12 +2342,25 @@ function ImportCalendar({
     [url, setUrl] = useState(''),
     [ics, setIcs] = useState(''),
     [mode, setMode] = useState('feed'),
-    [error, setError] = useState('');
+    [error, setError] = useState(''),
+    [username, setUsername] = useState(''),
+    [password, setPassword] = useState(''),
+    [calendars, setCalendars] = useState<{ url: string; title: string }[]>([]),
+    [collection, setCollection] = useState(''),
+    [discovering, setDiscovering] = useState(false);
+  const discoveryId = useRef(0);
+  useEffect(() => {
+    discoveryId.current++;
+    setCalendars([]);
+    setCollection('');
+  }, [url, username, password, mode, open]);
   useEffect(() => {
     if (!open) {
       setTitle('');
       setUrl('');
       setIcs('');
+      setUsername('');
+      setPassword('');
       setError('');
     }
   }, [open]);
@@ -2499,15 +2378,29 @@ function ImportCalendar({
           onSubmit={async (e) => {
             e.preventDefault();
             setError('');
+            if (discovering) return;
+            if (mode === 'caldav' && !collection) {
+              setError('Сначала найдите и выберите календарь');
+              return;
+            }
             if (mode === 'file' && !ics) {
               setError('Выберите файл ICS');
               return;
             }
             if (
               await submit(
-                mode === 'feed'
-                  ? { title, url, tags: tag === 'none' ? [] : [tag] }
-                  : { title, ics, tags: tag === 'none' ? [] : [tag] },
+                mode === 'caldav'
+                  ? {
+                      mode,
+                      title,
+                      url: collection,
+                      username,
+                      password,
+                      tags: tag === 'none' ? [] : [tag],
+                    }
+                  : mode === 'feed'
+                    ? { title, url, tags: tag === 'none' ? [] : [tag] }
+                    : { title, ics, tags: tag === 'none' ? [] : [tag] },
               )
             )
               setOpen(false);
@@ -2545,6 +2438,7 @@ function ImportCalendar({
                 <Link2 size={15} />
                 Подписка ICS
               </TabsTrigger>
+              <TabsTrigger value="caldav">CalDAV</TabsTrigger>
               <TabsTrigger value="file">
                 <FileUp size={15} />
                 Файл
@@ -2566,6 +2460,104 @@ function ImportCalendar({
                 Google, Яндекс, Outlook и DataSchool. Ссылка сохраняется только
                 на сервере и не передаётся агенту.
               </p>
+            </TabsContent>
+            <TabsContent value="caldav">
+              <div className="form-stack">
+                <label>
+                  Адрес сервера или календаря CalDAV
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    autoComplete="off"
+                    placeholder="https://caldav.yandex.ru"
+                    required={mode === 'caldav'}
+                  />
+                </label>
+                <label>
+                  Имя пользователя
+                  <input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="off"
+                    maxLength={500}
+                    required={mode === 'caldav'}
+                  />
+                </label>
+                <label>
+                  Пароль приложения
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="new-password"
+                    maxLength={1000}
+                    required={mode === 'caldav'}
+                  />
+                </label>
+                <p className="setting-footnote">
+                  Яндекс, iCloud и Fastmail. Для другого сервера его домен нужно
+                  разрешить в настройках сервера приложения. Пароль хранится
+                  зашифрованным на сервере. События доступны только для чтения.
+                </p>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    pending || discovering || !url || !username || !password
+                  }
+                  onClick={async () => {
+                    const id = ++discoveryId.current;
+                    setDiscovering(true);
+                    setError('');
+                    setCalendars([]);
+                    setCollection('');
+                    try {
+                      const result = await apiRequest<{
+                        calendars: { url: string; title: string }[];
+                      }>('/api/calendars', {
+                        mode: 'caldav',
+                        operation: 'discover',
+                        url,
+                        username,
+                        password,
+                      });
+                      if (id !== discoveryId.current) return;
+                      setCalendars(result.calendars);
+                      setCollection(result.calendars[0]?.url ?? '');
+                      if (!title && result.calendars[0])
+                        setTitle(result.calendars[0].title);
+                      if (!result.calendars.length)
+                        setError('На этом сервере не найдено календарей');
+                    } catch (e) {
+                      if (id === discoveryId.current)
+                        setError(
+                          e instanceof Error
+                            ? e.message
+                            : 'Не удалось найти календари',
+                        );
+                    } finally {
+                      setDiscovering(false);
+                    }
+                  }}
+                >
+                  {discovering ? 'Ищем…' : 'Найти календари'}
+                </button>
+                {!!calendars.length && (
+                  <label>
+                    Календарь
+                    <SelectBox
+                      value={collection}
+                      onChange={setCollection}
+                      label="Календарь CalDAV"
+                      options={calendars.map((c) => ({
+                        value: c.url,
+                        label: c.title,
+                      }))}
+                    />
+                  </label>
+                )}
+              </div>
             </TabsContent>
             <TabsContent value="file">
               <label className="file-input">
@@ -2597,7 +2589,12 @@ function ImportCalendar({
               {error}
             </p>
           )}
-          <button className="primary" disabled={pending}>
+          <button
+            className="primary"
+            disabled={
+              pending || discovering || (mode === 'caldav' && !collection)
+            }
+          >
             {pending ? 'Загружаем…' : 'Добавить календарь'}
             <ArrowRight size={16} />
           </button>

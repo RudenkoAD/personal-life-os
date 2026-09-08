@@ -33,9 +33,9 @@ API tests only accept localhost and clean up their own cards, sources and tokens
 - Nested project boards, parent navigation and cycle prevention. Projects cannot be scheduled; converting a scheduled task into a project returns it to its board.
 - Flexible sequence checklist steps.
 - Scope/tag filtering across Inbox, boards, projects and calendar.
-- Exclusive Inbox/board/calendar placement. Drag between columns, directly from Inbox or a board onto a calendar hour, and back to a board column or Inbox. Keyboard/touch alternatives in task details.
+- Exclusive Inbox/board/calendar placement. Drag between columns, directly from Inbox or a board onto a quarter-hour calendar slot, and back to a board column or Inbox. Keyboard/touch alternatives in task details.
 - Server persistence per authenticated owner, optimistic revision checking and a bounded activity history.
-- Calendar day/week views in Europe/Moscow. ICS file import and read-only subscriptions, source visibility and event provenance. Recurrence expansion with exceptions and cancellation handling.
+- Calendar day/week views in Europe/Moscow. Resizable task start/end edges with 15-minute snapping. ICS file import and read-only ICS/CalDAV subscriptions, source visibility and event provenance. Recurrence expansion with exceptions and cancellation handling.
 - Review lists, editable notes and interval, completion history, next-review date and creation of Inbox tasks from a prompt.
 - Mobile-friendly online capture page and home-screen web manifest.
 - Scoped, revocable agent tokens; stateless MCP HTTP adapter over the same domain service.
@@ -45,9 +45,9 @@ API tests only accept localhost and clean up their own cards, sources and tokens
 - Hosted first version uses private Sites access and ChatGPT identity. Yandex ID and other OAuth providers are not implemented.
 - App data is stored in D1; only dock layout preferences use browser localStorage. Each owner has an atomic, versioned workspace aggregate. This is intentionally sized for a personal workspace, with bounded counts and a 1.8 MB serialized limit; larger/multi-user deployments should migrate to normalized entity tables while preserving IDs.
 - All API mutations use optimistic revision checks. A lost response is not automatically replayed. General idempotency keys and change merging are future work.
-- Calendar source URLs are stored separately server-side and excluded from state/API/MCP responses. Subscriptions are HTTPS and limited to approved calendar hosts to prevent arbitrary server-side network access. Redirects are not followed. Other sources may be imported as ICS files.
+- Calendar source URLs are stored separately server-side and excluded from state/API/MCP responses. Subscriptions are HTTPS and limited to approved calendar hosts to prevent arbitrary server-side network access. ICS redirects are not followed. CalDAV allows at most two same-origin redirects; it discovers calendars with PROPFIND and reads events with REPORT. Other sources may be imported as ICS files.
 - Subscription polling runs **while the app is open**, at most once per source per 15 minutes. This is not an independent background sync worker. Real private calendar feeds have not been connected or tested.
-- ICS import keeps a 31-day past / 366-day future window, at most 2,000 occurrences, 1 MB source size and daily-or-slower RRULEs. It fails closed on unsupported/invalid data and preserves the previous snapshot. Imported events are read-only. Provider write-back, CalDAV, native internal recurring tasks, push notifications and deadlines are not implemented.
+- ICS import keeps a 31-day past / 366-day future window, at most 2,000 occurrences, 1 MB source size and daily-or-slower RRULEs. It fails closed on unsupported/invalid data and preserves the previous snapshot. Imported events are read-only. Provider write-back, native internal recurring tasks, push notifications and deadlines are not implemented.
 - Mobile is an online responsive web companion, not a native widget or offline app.
 - MCP `/api/mcp` supports `initialize`, `ping`, `tools/list`, `tools/call`, and initialized notification, with JSON responses. Tools are `life_read` and `life_act`; actions are validated by the shared domain. No SSE stream is offered. An external MCP client also needs authorization through the private Sites gateway: the app token alone cannot bypass it. An external client connection has not been configured or verified.
 - Tokens grant either read or read/write access and can be revoked. Expiry, fine-grained capability scopes and OAuth registration for agent clients are future work. Agent tokens cannot manage tokens, import feeds, or read feed URLs.
@@ -58,3 +58,13 @@ See [architecture](docs/architecture.md) for data and service boundaries.
 ## Dependency verification
 
 Runtime dependencies were patched to React / RSC 19.2.8, Vinext 1.0.0-beta.9 and Vite 8.2.2; Undici is constrained to patched 7.29.1. Remaining package audit advisories in development tooling are not resolved by downgrading Drizzle or forcing incompatible dependencies. Keep development servers on loopback, and update that tooling through its own compatibility check before exposing it on a network.
+
+## CalDAV setup
+
+`CALDAV_ENCRYPTION_KEY` is a base64-encoded random 32-byte AES-GCM key. Configure it as a Sites runtime secret before publishing; local development reads an independent key from ignored `.env.local`. Keep the production key stable: replacing it makes existing encrypted connections unreadable. Usernames/passwords are encrypted with fresh IVs and authenticated owner/source context in `caldav_connections`, separate from public application state. Source deletion removes the connection in the same CAS-protected transaction.
+
+Built-in servers: `caldav.yandex.ru`, `caldav.yandex.com`, `caldav.icloud.com`, `pNN-caldav.icloud.com`, and `caldav.fastmail.com`. For Nextcloud or another public server, configure its exact hostname in the operator-controlled comma-separated `CALDAV_ALLOWED_HOSTS` runtime variable, then deploy to apply it. Only HTTPS is accepted. Credentials are never forwarded to another origin; if a provider assigns a different server (for example an iCloud shard), enter that server's calendar URL directly. Use a provider app password and the complete CalDAV server or collection URL in Settings → Add calendar → CalDAV → Find calendars.
+
+Discovery and REPORT responses are bounded to 1 MB per operation, 500 resources, 20 collections and 2,000 expanded events. Unsupported, partial and malformed responses preserve the previous snapshot. Calendar connections are account-only; agent tokens cannot discover, add or refresh them. Protocol fixtures are tested; a real provider account has not yet been connected.
+
+API requests explicitly accept JSON. The client detects authentication redirects and HTML gateway errors, retains the draft on failed capture, and does not automatically replay a mutation whose result is uncertain.

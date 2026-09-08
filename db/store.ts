@@ -28,6 +28,7 @@ export async function loadState(owner: string): Promise<LifeState> {
 }
 export type FeedChange =
   | { kind: 'put'; id: string; url: string }
+  | { kind: 'putCalDav'; id: string; url: string; credentials: string }
   | { kind: 'delete'; id: string };
 export async function saveState(
   owner: string,
@@ -65,7 +66,15 @@ export async function saveState(
         )
         .bind(feed.id, owner, feed.url, owner, commitId),
     );
-  if (feed?.kind === 'delete')
+  if (feed?.kind === 'putCalDav')
+    statements.push(
+      db
+        .prepare(
+          'INSERT INTO caldav_connections (id, owner_id, url, credentials) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE owner_id = ? AND commit_id = ?)',
+        )
+        .bind(feed.id, owner, feed.url, feed.credentials, owner, commitId),
+    );
+  if (feed?.kind === 'delete') {
     statements.push(
       db
         .prepare(
@@ -73,6 +82,14 @@ export async function saveState(
         )
         .bind(feed.id, owner, owner, commitId),
     );
+    statements.push(
+      db
+        .prepare(
+          'DELETE FROM caldav_connections WHERE id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM workspaces WHERE owner_id = ? AND commit_id = ?)',
+        )
+        .bind(feed.id, owner, owner, commitId),
+    );
+  }
   const [result] = await db.batch(statements);
   if (!result.meta.changes)
     throw Object.assign(

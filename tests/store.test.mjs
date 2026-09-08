@@ -84,3 +84,53 @@ test('stale CAS cannot insert or delete credentials; failed feed statement rolls
   );
   assert.equal((await loadState(owner)).revision, after.revision);
 });
+test('CalDAV credentials follow atomic CAS and owner-scoped deletion', async () => {
+  const owner = 'caldav-owner',
+    other = 'another-owner';
+  const before = await loadState(owner),
+    after = applyAction(before, { type: 'capture', title: 'fixture' });
+  const put = {
+    kind: 'putCalDav',
+    id: 'caldav-fixture',
+    url: 'https://caldav.yandex.ru/fixture',
+    credentials: 'v1.encrypted.fixture',
+  };
+  await saveState(owner, before.revision, after, put);
+  const read = () =>
+    rawDb()
+      .prepare('SELECT credentials FROM caldav_connections WHERE id = ?')
+      .bind(put.id)
+      .first();
+  assert.equal((await read()).credentials, put.credentials);
+  await assert.rejects(
+    () =>
+      saveState(owner, before.revision, after, { ...put, id: 'stale-caldav' }),
+    (e) => e.status === 409,
+  );
+  assert.equal(
+    await rawDb()
+      .prepare('SELECT id FROM caldav_connections WHERE id = ?')
+      .bind('stale-caldav')
+      .first(),
+    null,
+  );
+  await assert.rejects(
+    () =>
+      saveState(owner, before.revision, after, { kind: 'delete', id: put.id }),
+    (e) => e.status === 409,
+  );
+  assert.ok(await read());
+  const otherBefore = await loadState(other);
+  await saveState(
+    other,
+    otherBefore.revision,
+    applyAction(otherBefore, { type: 'capture', title: 'other' }),
+    { kind: 'delete', id: put.id },
+  );
+  assert.ok(await read());
+  const next = applyAction(after, { type: 'capture', title: 'rollback' });
+  await assert.rejects(() => saveState(owner, after.revision, next, put));
+  assert.deepEqual(await loadState(owner), after);
+  await saveState(owner, after.revision, next, { kind: 'delete', id: put.id });
+  assert.equal(await read(), null);
+});

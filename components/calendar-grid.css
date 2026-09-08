@@ -1,0 +1,107 @@
+.calendar-timed-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  height: 1728px;
+  position: relative;
+}
+.calendar-time-ruler {
+  position: relative;
+  color: #a1aec3;
+  font-size: 10px;
+}
+.calendar-time-ruler span {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  transform: translateY(6px);
+}
+.calendar-day-track {
+  position: relative;
+  height: 1728px;
+  border-left: 1px solid #edf0f6;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 17px,
+    #f4f5f8 17px 18px,
+    transparent 18px 71px,
+    #e7eaf1 71px 72px
+  );
+}
+.calendar-positioned-event {
+  position: absolute;
+  box-sizing: border-box;
+  z-index: 2;
+  text-align: left;
+  border-left: 2px solid;
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+}
+.calendar-positioned-event.resizing {
+  z-index: 4;
+  outline: 1px solid currentColor;
+}
+.calendar-event-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 7px 5px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.calendar-positioned-event b,
+.calendar-positioned-event small {
+  display: block;
+}
+.calendar-positioned-event b {
+  font-weight: 500;
+}
+.calendar-positioned-event small {
+  font-size: 9px;
+  opacity: 0.8;
+  margin-top: 3px;
+}
+.calendar-resize-handle {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: ns-resize;
+  z-index: 3;
+  touch-action: none;
+}
+.calendar-resize-handle.start {
+  top: 0;
+}
+.calendar-resize-handle.end {
+  bottom: 0;
+}
+.calendar-resize-handle:hover,
+.calendar-resize-handle:focus-visible {
+  background: currentColor;
+  opacity: 0.5;
+  outline: 0;
+}
+.calendar-resize-announcement {
+  position: sticky;
+  bottom: 8px;
+  left: 50px;
+  z-index: 5;
+  grid-column: 2 / -1;
+  justify-self: center;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: #27344e;
+  color: white;
+  font-size: 11px;
+  pointer-events: none;
+}

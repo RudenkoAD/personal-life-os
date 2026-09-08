@@ -1,0 +1,145 @@
+export const MINUTES_PER_DAY = 1440;
+export const MINUTES_PER_SLOT = 15;
+export const TRACK_HEIGHT = 24 * 72;
+const MIN_DURATION = MINUTES_PER_SLOT * 60_000;
+const DAY = 24 * 60 * 60_000;
+
+export type LayoutInput = {
+  id: string;
+  start: string;
+  end: string;
+  title: string;
+  card: boolean;
+  color: string;
+  done?: boolean;
+};
+export type LayoutItem = LayoutInput & {
+  top: number;
+  height: number;
+  lane: number;
+  lanes: number;
+  first: boolean;
+  last: boolean;
+};
+
+export const snapMs = (value: number) =>
+  Math.round(value / (MINUTES_PER_SLOT * 60_000)) * MINUTES_PER_SLOT * 60_000;
+export const snapMinute = (value: number) =>
+  Math.round(value / MINUTES_PER_SLOT) * MINUTES_PER_SLOT;
+
+export function dayBounds(day: string) {
+  const start = Date.parse(`${day}T00:00:00+03:00`);
+  return { start, end: start + DAY };
+}
+
+/** The moved edge lands on a quarter-hour; the opposite edge stays exact. */
+export function clampResize(
+  start: number,
+  end: number,
+  target: number,
+  edge: 'start' | 'end',
+  minStart = -Infinity,
+  maxEnd = Infinity,
+) {
+  const low =
+    edge === 'start' ? Math.max(minStart, end - 7 * DAY) : start + MIN_DURATION;
+  const high =
+    edge === 'start' ? end - MIN_DURATION : Math.min(maxEnd, start + 7 * DAY);
+  const first = Math.ceil(low / MIN_DURATION) * MIN_DURATION;
+  const last = Math.floor(high / MIN_DURATION) * MIN_DURATION;
+  if (first > last) return { start, end };
+  const value = Math.max(first, Math.min(last, snapMs(target)));
+  return edge === 'start' ? { start: value, end } : { start, end: value };
+}
+export function pointerTimestamp(
+  day: string,
+  clientY: number,
+  trackTop: number,
+  trackHeight = TRACK_HEIGHT,
+) {
+  return dayBounds(day).start + ((clientY - trackTop) / trackHeight) * DAY;
+}
+export function dropInterval(
+  day: string,
+  clientY: number,
+  trackTop: number,
+  trackHeight = TRACK_HEIGHT,
+  duration = 3600000,
+) {
+  const bounds = dayBounds(day);
+  const start = Math.max(
+    bounds.start,
+    Math.min(
+      bounds.end - MIN_DURATION,
+      snapMs(pointerTimestamp(day, clientY, trackTop, trackHeight)),
+    ),
+  );
+  return { start, end: start + duration };
+}
+
+export function buildDayLayout(
+  day: string,
+  input: LayoutInput[],
+): LayoutItem[] {
+  const { start: dayStart, end: dayEnd } = dayBounds(day);
+  const visible = input
+    .flatMap((event) => {
+      const from = Math.max(Date.parse(event.start), dayStart);
+      const to = Math.min(Date.parse(event.end), dayEnd);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from)
+        return [];
+      return [
+        {
+          event,
+          from,
+          to,
+          first: Date.parse(event.start) >= dayStart,
+          last: Date.parse(event.end) <= dayEnd,
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        a.from - b.from || a.to - b.to || a.event.id.localeCompare(b.event.id),
+    );
+  const laneEnds: number[] = [];
+  const placed = visible.map((x) => {
+    let lane = laneEnds.findIndex((end) => end <= x.from);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(x.to);
+    } else laneEnds[lane] = x.to;
+    return { ...x, lane };
+  });
+  // Keep lane width local to each connected overlap group.
+  const groups: (typeof placed)[] = [];
+  for (const item of placed) {
+    const group = groups.at(-1);
+    if (!group || item.from >= Math.max(...group.map((x) => x.to)))
+      groups.push([item]);
+    else group.push(item);
+  }
+  const laneByEvent = new Map<string, number>();
+  const laneCount = new Map<string, number>();
+  for (const group of groups) {
+    const ends: number[] = [];
+    for (const item of group) {
+      let lane = ends.findIndex((end) => end <= item.from);
+      if (lane < 0) {
+        lane = ends.length;
+        ends.push(item.to);
+      } else ends[lane] = item.to;
+      laneByEvent.set(item.event.id, lane);
+    }
+    for (const item of group) laneCount.set(item.event.id, ends.length);
+  }
+  return placed.map(({ event, from, to, first, last }) => ({
+    ...event,
+    top: ((from - dayStart) / DAY) * TRACK_HEIGHT,
+    height: ((to - from) / DAY) * TRACK_HEIGHT,
+    lane: laneByEvent.get(event.id)!,
+    lanes: laneCount.get(event.id)!,
+    first,
+    last,
+  }));
+}
