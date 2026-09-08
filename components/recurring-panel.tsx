@@ -11,10 +11,32 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { createPortal } from 'react-dom';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverTitle,
+} from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Clock3, Inbox, Pencil, Repeat2, Save, Trash2 } from 'lucide-react';
+import {
+  CircleHelp,
+  Inbox,
+  Pencil,
+  Plus,
+  Repeat2,
+  Save,
+  Trash2,
+} from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   dateKey,
@@ -37,6 +59,8 @@ export interface RecurringPanelProps {
   state: LifeState;
   act: (action: Action) => Promise<boolean>;
   openCard: (id: string) => void;
+  error?: string;
+  toolbarTarget?: HTMLElement | null;
 }
 
 const units: Array<{ value: Unit; label: string; minutes: number }> = [
@@ -75,8 +99,15 @@ const ruleUnit = (minutes: number) => {
       };
 };
 
-export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
+export function RecurringPanel({
+  state,
+  act,
+  openCard,
+  error,
+  toolbarTarget,
+}: RecurringPanelProps) {
   const formId = useId();
+  const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(nowDraft);
   const [originalDraft, setOriginalDraft] = useState<Draft>(nowDraft);
@@ -95,6 +126,7 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
     : null;
   const beginEdit = (rule: RecurringRule) => {
     const cadence = ruleUnit(rule.intervalMinutes);
+    setEditorOpen(true);
     setEditingId(rule.id);
     setOriginalFirstAt(toLocalInput(rule.nextAt ?? rule.firstAt));
     const nextDraft = {
@@ -109,6 +141,7 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
     setOriginalDraft(nextDraft);
   };
   const beginCreate = () => {
+    setEditorOpen(true);
     setEditingId(null);
     setDraft(nowDraft());
   };
@@ -147,6 +180,7 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
       action.firstAt = localToIso(draft.firstAt);
     setSaving(true);
     if (await act(action)) {
+      setEditorOpen(false);
       setEditingId(null);
       setDraft(nowDraft());
     }
@@ -158,6 +192,7 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
     if (await act({ type: 'recurrence.delete', id: removeId })) {
       setRemoveId(null);
       if (editingId === removeId) {
+        setEditorOpen(false);
         setEditingId(null);
         setDraft(nowDraft());
       }
@@ -165,17 +200,35 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
     setSaving(false);
   };
 
+  const toolbar = (
+    <div className="recurring-toolbar">
+      <span className="view-count">{rules.length}</span>
+      <Popover>
+        <PopoverTrigger
+          className="icon-btn"
+          aria-label="Как работают повторения"
+          title="Как работают повторения"
+        >
+          <CircleHelp size={17} />
+        </PopoverTrigger>
+        <PopoverContent className="compact-help-popover">
+          <PopoverTitle>Повторения</PopoverTitle>
+          <p>
+            Таймер ждёт, пока задача в Inbox. Выполнение или перенос запускает
+            новый интервал. Сроки проверяются в открытой вкладке; после перерыва
+            задача появится при открытии.
+          </p>
+        </PopoverContent>
+      </Popover>
+      <button className="primary" onClick={beginCreate}>
+        <Plus size={16} />
+        Новое повторение
+      </button>
+    </div>
+  );
   return (
     <section className="recurring-panel" aria-label="Рекуррентные дела">
-      <div className="recurring-note">
-        <Clock3 size={16} />
-        <span>
-          Пока приложение открыто, сроки проверяются каждые 15 секунд. После
-          перерыва — при открытии. Пока созданная задача остаётся в Inbox,
-          таймер приостановлен; после выполнения или выхода из Inbox отсчёт
-          начинается заново.
-        </span>
-      </div>
+      {toolbarTarget ? createPortal(toolbar, toolbarTarget) : toolbar}
       <div className="recurring-layout">
         <div className="recurring-list" aria-label="Список повторений">
           {rules.length === 0 ? (
@@ -184,10 +237,10 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
                 <Repeat2 size={26} />
               </span>
               <h2>Пока нет повторений</h2>
-              <p>
-                Добавьте задачу, которую хочется возвращать в Inbox по
-                расписанию.
-              </p>
+              <button className="quiet-button" onClick={beginCreate}>
+                <Plus size={16} />
+                Добавить повторение
+              </button>
             </div>
           ) : (
             rules.map((rule) => {
@@ -205,7 +258,9 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
                     </span>
                     <div>
                       <h2>{rule.title}</h2>
-                      {rule.notes && <p>{rule.notes}</p>}
+                      {rule.notes && (
+                        <p className="recurring-notes-preview">{rule.notes}</p>
+                      )}
                       <div className="recurring-meta">
                         <span>
                           каждые{' '}
@@ -231,10 +286,10 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
                     {paused && waiting ? (
                       <button
                         className="recurring-waiting"
+                        aria-label={`Открыть задачу ${waiting?.title}`}
                         onClick={() => openCard(waiting.id)}
                       >
-                        <Inbox size={14} /> Таймер на паузе · в Inbox:{' '}
-                        {waiting.title}
+                        <Inbox size={14} /> В Inbox · пауза
                       </button>
                     ) : rule.nextAt ? (
                       <>
@@ -268,139 +323,153 @@ export function RecurringPanel({ state, act, openCard }: RecurringPanelProps) {
             })
           )}
         </div>
-        <form className="recurring-form" onSubmit={submit}>
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">
-                {editing ? 'РЕДАКТИРОВАНИЕ' : 'НОВОЕ ПОВТОРЕНИЕ'}
-              </p>
-              <h2>{editing ? 'Настроить шаблон' : 'Добавить задачу'}</h2>
-            </div>
-          </div>
-          <label className="form-field" htmlFor={`${formId}-title`}>
-            <span className="field-label">Название</span>
-            <Input
-              id={`${formId}-title`}
-              required
-              maxLength={200}
-              value={draft.title}
-              onChange={(event) =>
-                setDraft({ ...draft, title: event.target.value })
-              }
-              placeholder="Например, разобрать почту"
-            />
-          </label>
-          <label className="form-field" htmlFor={`${formId}-notes`}>
-            <span className="field-label">Заметки</span>
-            <Textarea
-              id={`${formId}-notes`}
-              maxLength={8000}
-              value={draft.notes}
-              onChange={(event) =>
-                setDraft({ ...draft, notes: event.target.value })
-              }
-              placeholder="Что нужно помнить при каждом появлении"
-            />
-          </label>
-          <fieldset className="recurring-scopes">
-            <legend className="field-label">Сферы жизни</legend>
-            <div className="tag-choices">
-              {state.tags.map((tag) => (
-                <label className="checkbox-label" key={tag.id}>
-                  <Checkbox
-                    checked={draft.tags.includes(tag.id)}
-                    onCheckedChange={(checked) =>
-                      setDraft((d) => ({
-                        ...d,
-                        tags: checked
-                          ? [...d.tags, tag.id]
-                          : d.tags.filter((id) => id !== tag.id),
-                      }))
-                    }
-                  />
-                  <span
-                    className="scope-dot"
-                    style={{ background: tag.color }}
-                  />
-                  {tag.title}
-                </label>
-              ))}
-            </div>
-            {!state.tags.length && (
-              <p className="muted">Добавить сферы можно в настройках.</p>
-            )}
-          </fieldset>
-          <div className="recurring-cadence">
-            <label className="form-field" htmlFor={`${formId}-amount`}>
-              <span className="field-label">Каждые</span>
+      </div>
+      <Sheet open={editorOpen} onOpenChange={setEditorOpen}>
+        <SheetContent className="recurring-editor-sheet">
+          <SheetHeader>
+            <SheetTitle>
+              {editingId ? 'Изменить повторение' : 'Новое повторение'}
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              Задача, интервал и время появления во входящих.
+            </SheetDescription>
+          </SheetHeader>
+          <form className="recurring-form" onSubmit={submit}>
+            <label className="form-field" htmlFor={`${formId}-title`}>
+              <span className="field-label">Название</span>
               <Input
-                id={`${formId}-amount`}
-                type="number"
-                min={1}
-                max={Math.floor(
-                  (365 * 1440) /
-                    (units.find((u) => u.value === draft.unit)?.minutes ?? 1),
-                )}
-                step={1}
+                id={`${formId}-title`}
                 required
-                value={draft.amount}
+                maxLength={200}
+                value={draft.title}
                 onChange={(event) =>
-                  setDraft({ ...draft, amount: event.target.value })
+                  setDraft({ ...draft, title: event.target.value })
                 }
+                placeholder="Например, разобрать почту"
               />
             </label>
-            <label className="form-field">
-              <span className="field-label">Единица</span>
-              <select
-                className="choice recurring-select"
-                value={draft.unit}
+            <label className="form-field" htmlFor={`${formId}-notes`}>
+              <span className="field-label">Заметки</span>
+              <Textarea
+                id={`${formId}-notes`}
+                maxLength={8000}
+                value={draft.notes}
                 onChange={(event) =>
-                  setDraft({ ...draft, unit: event.target.value as Unit })
+                  setDraft({ ...draft, notes: event.target.value })
                 }
-              >
-                {units.map((unit) => (
-                  <option key={unit.value} value={unit.value}>
-                    {unit.label}
-                  </option>
-                ))}
-              </select>
+                rows={2}
+                placeholder="Заметки к задаче"
+              />
             </label>
-          </div>
-          <label className="form-field">
-            <span className="field-label">
-              {editing?.generation ? 'Следующее появление' : 'Первое появление'}{' '}
-              · МСК
-            </span>
-            <Input
-              type="datetime-local"
-              disabled={!!editing?.waitingCardId}
-              required
-              value={draft.firstAt}
-              onChange={(event) =>
-                setDraft({ ...draft, firstAt: event.target.value })
-              }
-            />
-            <span className="muted">
-              {editing?.waitingCardId
-                ? 'Задача ещё в Inbox. Новый срок начнётся после её выполнения или переноса.'
-                : editing?.generation
-                  ? 'Меняйте дату только если хотите вручную задать следующее появление.'
-                  : 'Затем интервал будет отсчитываться от выполнения или выхода задачи из Inbox.'}
-            </span>
-          </label>
-          <div className="detail-actions recurring-form-actions">
-            <Button type="submit" disabled={saving || !draft.title.trim()}>
-              <Save />{' '}
-              {saving ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
-            </Button>
-            {editing && (
-              <Button type="button" variant="ghost" onClick={beginCreate}>
+            <fieldset className="recurring-scopes">
+              <legend className="field-label">Сферы жизни</legend>
+              <div className="tag-choices">
+                {state.tags.map((tag) => (
+                  <label className="checkbox-label" key={tag.id}>
+                    <Checkbox
+                      checked={draft.tags.includes(tag.id)}
+                      onCheckedChange={(checked) =>
+                        setDraft((d) => ({
+                          ...d,
+                          tags: checked
+                            ? [...d.tags, tag.id]
+                            : d.tags.filter((id) => id !== tag.id),
+                        }))
+                      }
+                    />
+                    <span
+                      className="scope-dot"
+                      style={{ background: tag.color }}
+                    />
+                    {tag.title}
+                  </label>
+                ))}
+              </div>
+              {!state.tags.length && (
+                <p className="muted">Добавить сферы можно в настройках.</p>
+              )}
+            </fieldset>
+            <div className="recurring-cadence">
+              <label className="form-field" htmlFor={`${formId}-amount`}>
+                <span className="field-label">Каждые</span>
+                <Input
+                  id={`${formId}-amount`}
+                  type="number"
+                  min={1}
+                  max={Math.floor(
+                    (365 * 1440) /
+                      (units.find((u) => u.value === draft.unit)?.minutes ?? 1),
+                  )}
+                  step={1}
+                  required
+                  value={draft.amount}
+                  onChange={(event) =>
+                    setDraft({ ...draft, amount: event.target.value })
+                  }
+                />
+              </label>
+              <label className="form-field">
+                <span className="field-label">Единица</span>
+                <select
+                  className="choice recurring-select"
+                  value={draft.unit}
+                  onChange={(event) =>
+                    setDraft({ ...draft, unit: event.target.value as Unit })
+                  }
+                >
+                  {units.map((unit) => (
+                    <option key={unit.value} value={unit.value}>
+                      {unit.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="form-field">
+              <span className="field-label">
+                {editing?.generation
+                  ? 'Следующее появление'
+                  : 'Первое появление'}{' '}
+                · МСК
+              </span>
+              <Input
+                type="datetime-local"
+                disabled={!!editing?.waitingCardId}
+                required
+                value={draft.firstAt}
+                onChange={(event) =>
+                  setDraft({ ...draft, firstAt: event.target.value })
+                }
+              />
+              <span className="muted">
+                {editing?.waitingCardId
+                  ? 'На паузе, пока задача в Inbox.'
+                  : editing?.generation
+                    ? 'Изменение даты задаст следующий срок вручную.'
+                    : ''}
+              </span>
+            </label>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="detail-actions recurring-form-actions">
+              <Button type="submit" disabled={saving || !draft.title.trim()}>
+                <Save />{' '}
+                {saving ? 'Сохраняем…' : editing ? 'Сохранить' : 'Добавить'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditorOpen(false)}
+              >
                 Отмена
               </Button>
-            )}
-          </div>
-        </form>
-      </div>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
       <AlertDialog
         open={Boolean(removeId)}
         onOpenChange={(open) => !open && setRemoveId(null)}

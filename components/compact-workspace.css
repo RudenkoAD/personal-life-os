@@ -1,0 +1,508 @@
+/* All views use the dock workspace's compact toolbar and working panels. */
+.app-inset.compact-shell {
+  height: 100dvh;
+  min-height: 360px;
+  overflow: hidden;
+}
+.workspace.compact-page {
+  flex: 1;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 10px 12px 12px;
+  overflow: auto;
+}
+.view-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #46536d;
+}
+.view-actions,
+.view-extra-actions,
+.recurring-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.view-extra-actions:empty,
+.view-actions:empty {
+  display: none;
+}
+.view-actions .primary,
+.compact-page .primary,
+.compact-page .quiet-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 14px;
+  border-radius: 7px;
+}
+.view-count {
+  font-size: 13px;
+  color: #78879e;
+}
+.compact-page .empty-state {
+  padding: 24px 16px;
+  gap: 8px;
+  border-radius: 9px;
+}
+.compact-page .empty-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  margin: 0;
+}
+.compact-page .empty-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.compact-page .empty-state h2 {
+  font-size: 16px;
+}
+.inline-empty {
+  margin: 12px 0;
+  font-size: 14px;
+  color: #78879e;
+}
+.compact-page .project-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.compact-page .project-card {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 120px 32px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.project-row-icon {
+  color: #7288bc;
+}
+.project-summary {
+  min-width: 0;
+}
+.compact-page .project-name {
+  font-size: 16px;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+}
+.compact-page .project-card p {
+  margin: 3px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.compact-page .project-progress span {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.compact-page .review-grid {
+  max-width: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.compact-page .review-card {
+  padding: 12px;
+  border-radius: 9px;
+}
+.compact-page .review-card-top {
+  margin: -12px -12px 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e3e8f0;
+  background: #f7f9fc;
+  border-radius: 9px 9px 0 0;
+}
+.compact-page .review-card h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.compact-page .review-due {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.compact-page .review-progress {
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.compact-page .review-prompt {
+  padding: 7px 0;
+  gap: 9px;
+}
+.compact-page .review-prompt > span:not([data-slot='checkbox']) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.review-interval {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #78879e;
+}
+.review-interval input {
+  width: 64px;
+  height: 32px;
+  padding: 5px 6px;
+  border: 1px solid #e0e5ee;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  color: #46536d;
+}
+.compact-page .review-buttons {
+  margin-left: auto;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.compact-page .review-history {
+  padding-top: 10px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.compact-help {
+  font-size: 13px;
+  color: #78879e;
+  margin: 10px 0 0;
+}
+.compact-help summary {
+  cursor: pointer;
+  padding: 4px 0;
+  width: fit-content;
+}
+.compact-help p {
+  max-width: 560px;
+  margin: 8px 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.compact-help summary:hover {
+  color: #485cdd;
+}
+.compact-page .review-notes {
+  padding: 0;
+  border: 0;
+  margin: 8px 0 0;
+}
+.review-notes-field {
+  display: block;
+  margin-top: 6px;
+}
+.review-notes-field textarea {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e0e5ee;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+  resize: vertical;
+}
+.compact-page .settings-stack {
+  max-width: none;
+  gap: 12px;
+  align-items: start;
+}
+.settings-columns {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+.agent-columns {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+.compact-page .settings-card {
+  padding: 12px;
+  min-width: 0;
+  border-radius: 9px;
+}
+.compact-page .section-heading {
+  align-items: center;
+  gap: 8px;
+  margin: -12px -12px 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e3e8f0;
+  background: #f7f9fc;
+  border-radius: 9px 9px 0 0;
+}
+.compact-page .section-heading > svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.compact-page .section-heading h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.compact-page .source-row {
+  gap: 9px;
+  padding: 9px 0;
+  flex-wrap: nowrap;
+}
+.compact-page .source-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.compact-page .source-row small {
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.compact-page .scope-editor {
+  padding: 5px 0;
+  gap: 8px;
+}
+.compact-page .scope-editor input:not([type='color']) {
+  padding: 6px 8px;
+}
+.compact-page .scope-create {
+  margin-top: 8px;
+}
+.compact-page .scope-save {
+  color: #485cdd;
+}
+.compact-page .scope-save:disabled {
+  color: #adb7c6;
+}
+.settings-extra {
+  grid-column: 1 / -1;
+}
+.account-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  font-size: 14px;
+  color: #78879e;
+}
+.account-toolbar > a {
+  margin-left: auto;
+}
+.compact-page .endpoint {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.compact-page .endpoint span {
+  margin: 0;
+  font-size: 12px;
+}
+.compact-page .endpoint code {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.compact-page .token-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin: 12px 0;
+}
+.compact-page .token-form label {
+  flex: 1 1 160px;
+  min-width: 0;
+  gap: 5px;
+}
+.compact-page .token-form input {
+  height: 34px;
+  padding: 6px 9px;
+  font-size: 14px;
+}
+.compact-page .token-form .choice {
+  min-width: 0;
+  width: 100%;
+}
+.compact-page .token-form .primary {
+  height: 34px;
+}
+.compact-page .history-row {
+  margin: 0;
+  padding: 9px 0;
+  gap: 8px;
+  border-bottom: 1px solid #edf0f6;
+}
+.compact-page .history-row small {
+  margin-top: 3px;
+}
+.compact-page .history-row b {
+  font-size: 14px;
+}
+.compact-page .recurring-panel {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+.compact-page .recurring-layout {
+  display: block;
+}
+.compact-page .recurring-list {
+  gap: 6px;
+}
+.compact-page .recurring-card {
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 240px) auto;
+  padding: 10px 12px;
+  gap: 10px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.compact-page .recurring-card h2 {
+  font-size: 16px;
+}
+.compact-page .recurring-icon {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+}
+.compact-page .recurring-notes-preview {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 2px 0 4px;
+}
+.compact-page .recurring-status {
+  font-size: 14px;
+}
+.compact-page .recurring-waiting {
+  font-size: 13px;
+}
+.compact-help-popover {
+  max-width: min(340px, calc(100vw - 24px));
+  font-size: 14px;
+  line-height: 1.5;
+}
+.recurring-editor-sheet[data-slot='sheet-content'] {
+  width: min(460px, 100vw);
+  max-width: 100vw;
+  gap: 0;
+  overflow: hidden;
+}
+.recurring-editor-sheet [data-slot='sheet-header'] {
+  padding: 16px 48px 16px 16px;
+  border-bottom: 1px solid #e3e8f0;
+  background: #f7f9fc;
+}
+.recurring-editor-sheet [data-slot='sheet-title'] {
+  font-size: 16px;
+}
+.recurring-editor-sheet .recurring-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.recurring-editor-sheet .form-field {
+  margin: 0;
+  gap: 5px;
+}
+.recurring-editor-sheet .recurring-scopes {
+  margin: 0;
+}
+.recurring-editor-sheet .recurring-form-actions {
+  margin-top: 0;
+  padding-top: 12px;
+  position: sticky;
+  bottom: -16px;
+  background: var(--popover);
+}
+.recurring-editor-sheet .recurring-cadence {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+}
+.recurring-editor-sheet .recurring-select {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .app-inset.compact-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .workspace.compact-page {
+    overflow: visible;
+    padding: 10px;
+  }
+  .compact-shell .topbar.workspace-topbar {
+    gap: 7px;
+  }
+  .compact-shell .workspace-topbar .topbar-right {
+    display: flex;
+    gap: 6px;
+  }
+  .compact-shell .topbar-right .save-indicator {
+    display: none;
+  }
+  .compact-shell .view-title {
+    flex: 1;
+  }
+  .compact-shell .topbar .topbar-search {
+    flex: 1 1 180px;
+    order: 3;
+    max-width: none;
+  }
+  .compact-shell .view-actions {
+    margin-left: auto;
+  }
+  .compact-page .project-card {
+    grid-template-columns: 20px minmax(0, 1fr) 32px;
+    gap: 8px;
+  }
+  .compact-page .project-summary {
+    grid-column: 2;
+  }
+  .compact-page .project-progress {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .compact-page .project-card > .icon-btn {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .compact-page .project-row-open {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .compact-page .project-row-open {
+    font-size: 0;
+    padding: 6px;
+  }
+  .compact-page .project-row-open svg {
+    width: 18px;
+    height: 18px;
+  }
+  .compact-page .recurring-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .compact-page .recurring-status {
+    grid-column: 1;
+    grid-row: 2;
+    padding-left: 35px;
+  }
+  .compact-page .recurring-actions {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+  .compact-page .source-row {
+    flex-wrap: wrap;
+  }
+  .compact-page .source-row > div {
+    flex: 1 1 160px;
+  }
+}

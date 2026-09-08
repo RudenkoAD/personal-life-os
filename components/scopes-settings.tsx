@@ -48,16 +48,16 @@ function ScopeEditor({
         aria-label={`Название сферы ${tag.title}`}
       />
       <button
-        className="quiet-button"
+        className="icon-btn scope-save"
         type="submit"
         disabled={!title.trim() || (title === tag.title && color === tag.color)}
         aria-label={`Сохранить сферу ${tag.title}`}
       >
         <Save size={16} />
-        <span>Сохранить</span>
+        <span className="sr-only">Сохранить</span>
       </button>
       <button
-        className="icon-button"
+        className="icon-btn"
         type="button"
         onClick={remove}
         aria-label={`Удалить сферу ${tag.title}`}
@@ -81,9 +81,6 @@ export function ScopesSettings({ tags, act }: { tags: Scope[]; act: Act }) {
         <Palette size={21} />
         <div>
           <h2>Сферы жизни</h2>
-          <p>
-            Ваши названия и цвета. Изменения появятся на всех связанных задачах.
-          </p>
         </div>
       </div>
       <div className="scope-editors">
@@ -96,9 +93,7 @@ export function ScopesSettings({ tags, act }: { tags: Scope[]; act: Act }) {
           />
         ))}
       </div>
-      {!tags.length && (
-        <p className="muted">Добавьте сферы, которыми хотите пользоваться.</p>
-      )}
+      {!tags.length && <p className="inline-empty">Нет сфер</p>}
       <form className="scope-editor scope-create" onSubmit={add}>
         <input
           type="color"

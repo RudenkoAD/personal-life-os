@@ -1,4 +1,5 @@
 'use client';
+import './compact-workspace.css';
 import {
   useCallback,
   useEffect,
@@ -107,10 +108,6 @@ import {
   CheckCheck,
   ArrowDownToLine,
   Sparkles,
-  CircleHelp,
-  List,
-  LayoutGrid,
-  CornerDownLeft,
   ShieldCheck,
   Copy,
   LogOut,
@@ -227,7 +224,7 @@ function EmptyState({
         <Icon size={26} />
       </span>
       <h2>{title}</h2>
-      <p>{detail}</p>
+      {detail && <p>{detail}</p>}
       {children}
     </div>
   );
@@ -237,6 +234,8 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     stateRef = useRef<LifeState | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [dockToolbarTarget, setDockToolbarTarget] =
+    useState<HTMLDivElement | null>(null);
+  const [viewToolbarTarget, setViewToolbarTarget] =
     useState<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>('board'),
     [boardId, setBoardId] = useState('main'),
@@ -253,9 +252,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     [notice, setNotice] = useState(''),
     [failure, setFailure] = useState(''),
     [needsSignIn, setNeedsSignIn] = useState(false);
-  const [capture, setCapture] = useState(''),
-    [inboxCapture, setInboxCapture] = useState(''),
-    captureRef = useRef<HTMLInputElement>(null),
+  const [inboxCapture, setInboxCapture] = useState(''),
     [selected, setSelected] = useState<string | null>(null),
     [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null),
     [newForm, setNewForm] = useState<NewForm | null>(null),
@@ -443,15 +440,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     if (id) setBoardId(id);
     setSelected(null);
   };
-  const submitCapture = async (e: FormEvent) => {
-    e.preventDefault();
-    if (
-      await act({ type: 'capture', title: capture }, 'Добавлено во входящие')
-    ) {
-      setCapture('');
-      captureRef.current?.focus();
-    }
-  };
+
   const board = state?.boards.find((b) => b.id === boardId) ?? state?.boards[0];
   const matches = (c: { title: string; tags: string[]; done?: boolean }) =>
     (scope === 'all' || c.tags.includes(scope)) &&
@@ -687,9 +676,9 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     inbox: 'Входящие',
     calendar: 'Календарь',
     projects: 'Проекты',
-    reviews: 'Время свериться с собой',
+    reviews: 'Обзоры',
     recurring: 'Рекуррентные дела',
-    settings: 'Календари и настройки',
+    settings: 'Настройки',
     agent: 'Ваш агент',
   };
   let monday = day;
@@ -1224,12 +1213,6 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                   </button>
                 ))}
               </div>
-              <div className="sidebar-note">
-                <Orbit size={21} />
-                <p>
-                  Всё важное —<br />в одном пространстве.
-                </p>
-              </div>
             </SidebarContent>
             <SidebarFooter>
               <button
@@ -1256,8 +1239,10 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
             </SidebarFooter>
           </Sidebar>
         </SheetContent>
-        <SidebarInset className={`app-inset ${isDockView ? 'dock-shell' : ''}`}>
-          <header className={`topbar ${isDockView ? 'workspace-topbar' : ''}`}>
+        <SidebarInset
+          className={`app-inset ${isDockView ? 'dock-shell' : 'compact-shell'}`}
+        >
+          <header className="topbar workspace-topbar">
             <SheetTrigger
               className="navigation-trigger"
               aria-label="Открыть меню"
@@ -1271,7 +1256,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                 ref={setDockToolbarTarget}
               />
             ) : (
-              <b>{titles[view]}</b>
+              <h1 className="view-title">{titles[view]}</h1>
             )}
             {(isDockView || view === 'projects') && (
               <>
@@ -1347,6 +1332,50 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                 </Popover>
               </>
             )}
+            <div className="view-actions">
+              {!isDockView && (
+                <div
+                  className="view-extra-actions"
+                  ref={setViewToolbarTarget}
+                />
+              )}
+              {view === 'projects' && (
+                <button
+                  className="primary"
+                  disabled={!state}
+                  onClick={() =>
+                    setNewForm({
+                      kind: 'card',
+                      title: '',
+                      cardType: 'project',
+                    })
+                  }
+                >
+                  <Plus size={17} />
+                  Новый проект
+                </button>
+              )}
+              {view === 'reviews' && (
+                <button
+                  className="primary"
+                  disabled={!state}
+                  onClick={() => setNewForm({ kind: 'review', title: '' })}
+                >
+                  <Plus size={17} />
+                  Новый список
+                </button>
+              )}
+              {view === 'settings' && (
+                <button
+                  className="primary"
+                  disabled={!state}
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Plus size={17} />
+                  Добавить календарь
+                </button>
+              )}
+            </div>
             <div className="topbar-right">
               <span
                 className={`save-indicator sync-status ${sync.error ? 'sync-error' : ''}`}
@@ -1379,96 +1408,9 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
             (failure || notice || sync.error || sync.storageError) && (
               <div className="dock-feedback">{feedback}</div>
             )}
-          <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
-            {!isDockView && (
-              <>
-                <div className="heading-kicker">
-                  <span className="eyebrow">
-                    {view === 'reviews'
-                      ? 'ПОСМОТРЕТЬ НА ЖИЗНЬ ЦЕЛИКОМ'
-                      : 'ЛИЧНОЕ ПРОСТРАНСТВО'}
-                  </span>
-                  <span className="current-date">
-                    {prettyDate(new Date().toISOString())}
-                  </span>
-                </div>
-                <div className="page-title">
-                  <div>
-                    <h1>{titles[view]}</h1>
-                    <p className="page-subtitle">
-                      {view === 'projects'
-                        ? 'Большие замыслы начинаются с небольших шагов.'
-                        : view === 'reviews'
-                          ? 'Постоянные списки помогают помнить о важных сферах.'
-                          : view === 'recurring'
-                            ? 'Новая задача — когда закончится отсчёт после предыдущей.'
-                            : view === 'agent'
-                              ? 'Доступ к вашим задачам через общие правила приложения.'
-                              : 'Сферы жизни и внешние календари.'}
-                    </p>
-                  </div>
-                  {view === 'projects' && (
-                    <button
-                      className="primary"
-                      disabled={!state}
-                      onClick={() =>
-                        setNewForm({
-                          kind: 'card',
-                          title: '',
-                          cardType: 'project',
-                        })
-                      }
-                    >
-                      <Plus size={17} />
-                      Новый проект
-                    </button>
-                  )}
-                  {view === 'reviews' && (
-                    <button
-                      className="primary"
-                      onClick={() => setNewForm({ kind: 'review', title: '' })}
-                    >
-                      <Plus size={17} />
-                      Новый список
-                    </button>
-                  )}
-                  {view === 'settings' && (
-                    <button
-                      className="primary"
-                      onClick={() => setImportOpen(true)}
-                    >
-                      <Plus size={17} />
-                      Добавить календарь
-                    </button>
-                  )}
-                </div>
-                {(view === 'projects' || view === 'reviews') && (
-                  <form className="capture" onSubmit={submitCapture}>
-                    <span className="capture-icon">
-                      <Plus size={19} />
-                    </span>
-                    <input
-                      ref={captureRef}
-                      aria-label="Быстрый захват во входящие"
-                      placeholder="Что нужно сделать? Запишите, разберётесь позже…"
-                      value={capture}
-                      maxLength={200}
-                      onChange={(e) => setCapture(e.target.value)}
-                      disabled={!state}
-                    />
-                    <kbd>⌘ K</kbd>
-                    <button
-                      className="capture-submit"
-                      type="submit"
-                      disabled={pending || !capture.trim() || !state}
-                      aria-label="Отправить во входящие"
-                    >
-                      <CornerDownLeft size={19} />
-                    </button>
-                  </form>
-                )}
-              </>
-            )}
+          <main
+            className={`workspace ${isDockView ? 'dock-page' : 'compact-page'}`}
+          >
             {!isDockView && feedback}
             {loading ? (
               <div className="loading-grid">
@@ -1520,31 +1462,21 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                           .filter((c) => c.type === 'project')
                           .map((c) => (
                             <section className="project-card" key={c.id}>
-                              <div className="project-card-head">
-                                <span className="project-icon">
-                                  <FolderOpen size={23} />
-                                </span>
+                              <FolderOpen
+                                size={19}
+                                className="project-row-icon"
+                              />
+                              <div className="project-summary">
                                 <button
-                                  className="icon-btn"
-                                  aria-label={`Детали проекта ${c.title}`}
-                                  onClick={() => setSelected(c.id)}
+                                  className="project-name"
+                                  onClick={() =>
+                                    navigate('board', c.childBoardId)
+                                  }
                                 >
-                                  <Settings2 size={17} />
+                                  {c.title}
                                 </button>
+                                {c.notes && <p>{c.notes}</p>}
                               </div>
-                              <button
-                                className="project-name"
-                                onClick={() =>
-                                  navigate('board', c.childBoardId)
-                                }
-                              >
-                                {c.title}
-                                <ArrowUpRight size={18} />
-                              </button>
-                              <p>
-                                {c.notes ||
-                                  'Собственная доска для задач и следующих шагов.'}
-                              </p>
                               <div className="project-progress">
                                 <Progress
                                   value={
@@ -1579,14 +1511,30 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                                   готово
                                 </span>
                               </div>
+                              <button
+                                className="icon-btn"
+                                aria-label={`Детали проекта ${c.title}`}
+                                title="Детали"
+                                onClick={() => setSelected(c.id)}
+                              >
+                                <Settings2 size={17} />
+                              </button>
+                              <button
+                                className="quiet-button project-row-open"
+                                onClick={() =>
+                                  navigate('board', c.childBoardId)
+                                }
+                              >
+                                Открыть <ArrowUpRight size={15} />
+                              </button>
                             </section>
                           ))}
                       </div>
                     ) : (
                       <EmptyState
                         icon={Layers}
-                        title="Дайте замыслу своё пространство"
-                        detail="У каждого проекта будет собственная доска. Внутри можно создавать задачи и другие проекты."
+                        title="Нет проектов"
+                        detail=""
                       />
                     ))}
                   {view === 'reviews' && (
@@ -1618,20 +1566,18 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                       state={state}
                       act={act}
                       openCard={setSelected}
+                      error={failure}
+                      toolbarTarget={viewToolbarTarget}
                     />
                   )}
                   {view === 'settings' && (
-                    <div className="settings-stack">
+                    <div className="settings-stack settings-columns">
                       <ScopesSettings tags={state.tags} act={act} />
                       <section className="settings-card">
                         <div className="section-heading">
                           <CalendarDays size={21} />
                           <div>
                             <h2>Внешние календари</h2>
-                            <p>
-                              Подписки обновляются каждые 15 минут, пока
-                              приложение открыто.
-                            </p>
                           </div>
                         </div>
                         {state.sources.length ? (
@@ -1693,71 +1639,42 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                             </div>
                           ))
                         ) : (
-                          <EmptyState
-                            icon={CalendarDays}
-                            title="Все календари рядом"
-                            detail="Добавьте ссылку подписки ICS или импортируйте файл календаря."
-                          />
+                          <p className="inline-empty">
+                            Нет подключённых календарей
+                          </p>
                         )}
-                        <button
-                          className="quiet-button"
-                          onClick={() => setImportOpen(true)}
-                        >
-                          <Plus size={16} />
-                          Добавить календарь
-                        </button>
+                        <details className="compact-help">
+                          <summary>Обновление календарей</summary>
+                          <p>
+                            Подписки обновляются каждые 15 минут, пока
+                            приложение открыто. Файлы ICS импортируются один
+                            раз; внешние события доступны только для чтения.
+                          </p>
+                        </details>
                       </section>
-                      <section className="settings-card">
-                        <div className="section-heading">
-                          <ArrowDownToLine size={21} />
-                          <div>
-                            <h2>Быстрый захват на телефоне</h2>
-                            <p>
-                              Откройте страницу захвата и добавьте её на
-                              домашний экран через меню браузера.
-                            </p>
-                          </div>
+                      <section className="settings-card settings-extra">
+                        <div className="account-toolbar">
+                          <span>Москва · UTC+3</span>
+                          <span>Вход: ChatGPT</span>
+                          <a
+                            className="text-button"
+                            href="/signout-with-chatgpt?return_to=%2F"
+                            target="_top"
+                          >
+                            <LogOut size={15} />
+                            Выйти
+                          </a>
                         </div>
-                        <a className="quiet-button" href="/?capture=1">
-                          Открыть страницу захвата
-                          <ArrowUpRight size={15} />
-                        </a>
-                        <p className="setting-footnote">
-                          Веб-клиенту нужен интернет. Нативный виджет и
-                          офлайн-очередь пока не подключены.
-                        </p>
-                      </section>
-                      <section className="settings-card">
-                        <div className="section-heading">
-                          <ShieldCheck size={21} />
-                          <div>
-                            <h2>Личное пространство</h2>
-                            <p>
-                              Данные хранятся на сервере и привязаны к вашему
-                              аккаунту.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="settings-line">
-                          <span>Часовой пояс</span>
-                          <b>Москва · UTC+3</b>
-                        </div>
-                        <div className="settings-line">
-                          <span>Вход</span>
-                          <b>ChatGPT</b>
-                        </div>
-                        <p className="setting-footnote">
-                          Яндекс ID, CalDAV и редактирование событий у
-                          провайдера — следующие интеграции.
-                        </p>
-                        <a
-                          className="text-button"
-                          href="/signout-with-chatgpt?return_to=%2F"
-                          target="_top"
-                        >
-                          <LogOut size={15} />
-                          Выйти
-                        </a>
+                        <details className="compact-help">
+                          <summary>Захват с телефона</summary>
+                          <p>
+                            Откройте Inbox и добавьте страницу на домашний экран
+                            через меню браузера. Для работы нужен интернет.
+                          </p>
+                          <a className="quiet-button" href="/?capture=1">
+                            Открыть Inbox <ArrowUpRight size={15} />
+                          </a>
+                        </details>
                       </section>
                     </div>
                   )}
@@ -1766,12 +1683,6 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
               )
             )}
           </main>
-          <footer className="workspace-footer">
-            <span>
-              <Orbit size={14} /> life os
-            </span>
-            <span>Меньше держать в голове. Больше внимания жизни.</span>
-          </footer>
         </SidebarInset>
       </Sheet>
       <Dialog
@@ -1797,7 +1708,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                           ? 'Новый пункт обзора'
                           : 'Переименовать'}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               {newForm?.placement === 'inbox' && newForm?.kind === 'card'
                 ? 'Просто запишите мысль. Всё остальное можно решить позже.'
                 : 'Дайте понятное название, чтобы легко вернуться к этому позже.'}
@@ -2258,17 +2169,13 @@ function ReviewPanel({
   return (
     <section className="review-card">
       <div className="review-card-top">
-        <span className="review-icon">
-          <Repeat2 size={23} />
-        </span>
+        <h2>{r.title}</h2>
         <span className={`review-due ${r.nextDue <= dateKey() ? 'due' : ''}`}>
           {r.nextDue <= dateKey()
-            ? 'Можно пройти сейчас'
-            : 'Следующий · ' + prettyDate(r.nextDue + 'T12:00:00+03:00')}
+            ? 'Пора пройти'
+            : prettyDate(r.nextDue + 'T12:00:00+03:00')}
         </span>
       </div>
-      <h2>{r.title}</h2>
-      <p className="muted">Нужно ли мне что-то сделать в этой сфере?</p>
       <div className="review-progress">
         <Progress
           value={r.prompts.length ? (done / r.prompts.length) * 100 : 0}
@@ -2304,28 +2211,33 @@ function ReviewPanel({
       </div>
       <button className="text-button" onClick={addPrompt}>
         <Plus size={15} />
-        Добавить сферу для размышления
+        Добавить пункт
       </button>
-      <div className="form-stack review-notes">
-        <label>
-          Мысли после обзора
+      <details className="compact-help review-notes">
+        <summary>Заметки{notes.trim() ? ' · есть текст' : ''}</summary>
+        <label className="review-notes-field">
+          <span className="sr-only">Мысли после обзора</span>
           <textarea
             rows={3}
             value={notes}
             maxLength={8000}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Что хочется изменить или продолжить?"
+            placeholder="Заметки к обзору"
           />
         </label>
-        <label>
-          Повторять через, дней
+      </details>
+      <div className="review-footer">
+        <label className="review-interval">
+          <span>Каждые</span>
           <input
             type="number"
             min={1}
             max={365}
             value={interval}
             onChange={(e) => setIntervalValue(e.target.value)}
+            aria-label="Интервал обзора в днях"
           />
+          <span>дн.</span>
         </label>
         <div className="review-buttons">
           <button
@@ -2722,42 +2634,26 @@ function AgentPanel({ history }: { history: LifeState['history'] }) {
     void refresh();
   }, [refresh]);
   return (
-    <div className="settings-stack">
+    <div className="settings-stack agent-columns">
       <section className="settings-card">
         <div className="section-heading">
-          <Bot size={24} />
-          <div>
-            <h2>Личный помощник с понятными правами</h2>
-            <p>
-              Читайте задачи, разбирайте входящие и планируйте время через MCP.
-            </p>
-          </div>
-        </div>
-        <div className="agent-capabilities">
-          <span>
-            <Check size={15} />
-            Общая модель задач
-          </span>
-          <span>
-            <Check size={15} />
-            Проверка прав
-          </span>
-          <span>
-            <Check size={15} />
-            История изменений
-          </span>
+          <Bot size={19} />
+          <h2>Подключения</h2>
         </div>
         <div className="endpoint">
-          <span>MCP · Streamable HTTP</span>
+          <span>MCP</span>
           <code>
             {typeof window !== 'undefined' ? location.origin : ''}/api/mcp
           </code>
         </div>
-        <p className="setting-footnote">
-          Токен задаёт права внутри приложения. Для обращения к этому приватному
-          сайту клиенту также нужен доступ через вход ChatGPT. Внешнее
-          подключение MCP-клиента ещё нужно настроить и проверить.
-        </p>
+        <details className="compact-help">
+          <summary>Как подключить</summary>
+          <p>
+            Используйте адрес MCP и токен ниже. Приватный сайт также требует
+            входа через ChatGPT; одного токена недостаточно. Подключение
+            внешнего клиента нужно настроить и проверить.
+          </p>
+        </details>
         <form
           className="token-form"
           onSubmit={async (e) => {
@@ -2875,8 +2771,7 @@ function AgentPanel({ history }: { history: LifeState['history'] }) {
         <div className="section-heading">
           <Clock3 size={21} />
           <div>
-            <h2>Последние изменения</h2>
-            <p>Действия человека и агента видны в одной истории.</p>
+            <h2>История изменений</h2>
           </div>
         </div>
         {history.length ? (
@@ -2892,9 +2787,7 @@ function AgentPanel({ history }: { history: LifeState['history'] }) {
             </div>
           ))
         ) : (
-          <p className="muted">
-            Здесь появятся действия с карточками и обзорами.
-          </p>
+          <p className="muted">Пока нет изменений.</p>
         )}
       </section>
     </div>
