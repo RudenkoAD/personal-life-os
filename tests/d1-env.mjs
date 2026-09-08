@@ -18,6 +18,9 @@ class Query {
   async first() {
     return sql.prepare(this.source).get(...this.args) ?? null;
   }
+  async all() {
+    return { results: sql.prepare(this.source).all(...this.args) };
+  }
   async run() {
     const r = sql.prepare(this.source).run(...this.args);
     return { meta: { changes: Number(r.changes) } };

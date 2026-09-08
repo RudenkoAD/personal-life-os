@@ -35,6 +35,7 @@ export async function saveState(
   previous: number,
   state: LifeState,
   feed?: FeedChange,
+  mutation?: { id: string; hash: string },
 ) {
   const data = JSON.stringify(state);
   if (data.length > 1800000)
@@ -90,6 +91,21 @@ export async function saveState(
         .bind(feed.id, owner, owner, commitId),
     );
   }
+  if (mutation)
+    statements.push(
+      db
+        .prepare(
+          'INSERT INTO mutations (owner_id, id, hash, revision) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE owner_id = ? AND commit_id = ?)',
+        )
+        .bind(
+          owner,
+          mutation.id,
+          mutation.hash,
+          state.revision,
+          owner,
+          commitId,
+        ),
+    );
   const [result] = await db.batch(statements);
   if (!result.meta.changes)
     throw Object.assign(
@@ -98,4 +114,32 @@ export async function saveState(
       ),
       { status: 409 },
     );
+}
+
+export async function mutationReceipt(owner: string, id: string) {
+  return rawDb()
+    .prepare(
+      'SELECT hash, revision FROM mutations WHERE owner_id = ? AND id = ?',
+    )
+    .bind(owner, id)
+    .first<{ hash: string; revision: number }>();
+}
+export async function acknowledgedMutations(
+  owner: string,
+  ids: string[],
+  revision: number,
+) {
+  if (!ids.length) return [];
+  const applied: string[] = [];
+  for (let i = 0; i < ids.length; i += 40) {
+    const batch = ids.slice(i, i + 40);
+    const result = await rawDb()
+      .prepare(
+        `SELECT id FROM mutations WHERE owner_id = ? AND revision <= ? AND id IN (${batch.map(() => '?').join(',')})`,
+      )
+      .bind(owner, revision, ...batch)
+      .all<{ id: string }>();
+    applied.push(...result.results.map((row) => row.id));
+  }
+  return applied;
 }

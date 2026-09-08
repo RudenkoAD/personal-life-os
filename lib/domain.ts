@@ -116,12 +116,12 @@ function strictInstant(value: unknown) {
     return NaN;
   return Date.parse(value);
 }
-function columns() {
+function columns(makeId: () => string = id) {
   return [
-    { id: id(), title: 'Следующие действия' },
-    { id: id(), title: 'В работе' },
-    { id: id(), title: 'Ожидание' },
-    { id: id(), title: 'Готово' },
+    { id: makeId(), title: 'Следующие действия' },
+    { id: makeId(), title: 'В работе' },
+    { id: makeId(), title: 'Ожидание' },
+    { id: makeId(), title: 'Готово' },
   ];
 }
 export function dateKey(date = new Date()) {
@@ -197,14 +197,19 @@ function checkTarget(s: LifeState, c: Card, b: Board) {
       : undefined;
   }
 }
-function addCard(s: LifeState, a: Action, now: string): Card {
+function addCard(
+  s: LifeState,
+  a: Action,
+  now: string,
+  makeId: () => string,
+): Card {
   const type = (a.cardType ?? 'task') as CardType;
   if (!['task', 'project', 'sequence'].includes(type)) fail('Неизвестный тип');
   const b = boardOf(s, a.boardId ?? 'main');
   const columnId = a.columnId ?? b.columns[0].id;
   if (!b.columns.some((c) => c.id === columnId)) fail('Колонка не найдена');
   const c: Card = {
-    id: id(),
+    id: makeId(),
     title: textValue(a.title, 'Название'),
     notes: optionalText(a.notes),
     type,
@@ -217,12 +222,12 @@ function addCard(s: LifeState, a: Action, now: string): Card {
     createdAt: now,
   };
   if (type === 'project') {
-    c.childBoardId = id();
+    c.childBoardId = makeId();
     s.boards.push({
       id: c.childBoardId,
       title: c.title,
       parentCardId: c.id,
-      columns: columns(),
+      columns: columns(makeId),
     });
   }
   s.cards.unshift(c);
@@ -233,6 +238,7 @@ export function applyAction(
   a: Action,
   actor = 'Вы',
   nowDate = new Date(),
+  makeId: () => string = id,
 ): LifeState {
   const s = structuredClone(input),
     now = nowDate.toISOString();
@@ -241,7 +247,7 @@ export function applyAction(
   switch (a.type) {
     case 'capture':
     case 'create': {
-      const c = addCard(s, a, now);
+      const c = addCard(s, a, now, makeId);
       message = `Добавлено: ${c.title}`;
       break;
     }
@@ -268,12 +274,12 @@ export function applyAction(
           if (c.placement === 'calendar') c.placement = 'board';
           delete c.start;
           delete c.end;
-          c.childBoardId = id();
+          c.childBoardId = makeId();
           s.boards.push({
             id: c.childBoardId,
             title: c.title,
             parentCardId: c.id,
-            columns: columns(),
+            columns: columns(makeId),
           });
         }
       }
@@ -332,7 +338,11 @@ export function applyAction(
       const c = cardOf(s, a.id);
       if (c.type !== 'sequence') fail('Шаги доступны в последовательности');
       if (c.steps.length >= 100) fail('Максимум 100 шагов');
-      c.steps.push({ id: id(), title: textValue(a.title, 'Шаг'), done: false });
+      c.steps.push({
+        id: makeId(),
+        title: textValue(a.title, 'Шаг'),
+        done: false,
+      });
       message = `Добавлен шаг: ${c.title}`;
       break;
     }
@@ -343,7 +353,7 @@ export function applyAction(
         c.steps.find((x) => x.id === a.stepId) ?? fail('Шаг не найден');
       if (a.type === 'step.delete')
         c.steps = c.steps.filter((x) => x.id !== step.id);
-      else step.done = !step.done;
+      else step.done = typeof a.done === 'boolean' ? a.done : !step.done;
       message = `Изменены шаги: ${c.title}`;
       break;
     }
@@ -358,9 +368,9 @@ export function applyAction(
     }
     case 'board.create': {
       s.boards.push({
-        id: id(),
+        id: makeId(),
         title: textValue(a.title, 'Название доски'),
-        columns: columns(),
+        columns: columns(makeId),
       });
       message = 'Создана доска';
       break;
@@ -376,7 +386,7 @@ export function applyAction(
       const b = boardOf(s, a.boardId);
       if (b.columns.length >= 20) fail('Максимум 20 колонок');
       b.columns.push({
-        id: id(),
+        id: makeId(),
         title: textValue(a.title, 'Название колонки', 80),
       });
       message = 'Добавлена колонка';
@@ -398,13 +408,13 @@ export function applyAction(
         typeof a.color === 'string' && /^#[0-9a-f]{6}$/i.test(a.color)
           ? a.color
           : '#6677dd';
-      s.tags.push({ id: id(), title, color });
+      s.tags.push({ id: makeId(), title, color });
       message = `Создан тег: ${title}`;
       break;
     }
     case 'review.create': {
       s.reviews.push({
-        id: id(),
+        id: makeId(),
         title: textValue(a.title, 'Название обзора'),
         prompts: [],
         intervalDays: 30,
@@ -437,10 +447,10 @@ export function applyAction(
       if (a.promptId) {
         const p =
           r.prompts.find((x) => x.id === a.promptId) ?? fail('Пункт не найден');
-        p.done = !p.done;
+        p.done = typeof a.done === 'boolean' ? a.done : !p.done;
       } else
         r.prompts.push({
-          id: id(),
+          id: makeId(),
           title: textValue(a.title, 'Пункт'),
           done: false,
         });
@@ -451,6 +461,16 @@ export function applyAction(
       const r = s.reviews.find((x) => x.id === a.id) ?? fail('Обзор не найден');
       if (!r.prompts.length || r.prompts.some((x) => !x.done))
         fail('Сначала пройдите все пункты обзора');
+      if (a.notes !== undefined) r.notes = optionalText(a.notes);
+      if (a.intervalDays !== undefined) {
+        if (
+          !Number.isInteger(a.intervalDays) ||
+          Number(a.intervalDays) < 1 ||
+          Number(a.intervalDays) > 365
+        )
+          fail('Интервал: от 1 до 365 дней');
+        r.intervalDays = Number(a.intervalDays);
+      }
       r.history.unshift({ date: now, notes: r.notes });
       r.history = r.history.slice(0, 50);
       r.nextDue = dateKey(
@@ -464,7 +484,8 @@ export function applyAction(
     case 'source.toggle': {
       const source =
         s.sources.find((x) => x.id === a.id) ?? fail('Календарь не найден');
-      source.enabled = !source.enabled;
+      source.enabled =
+        typeof a.enabled === 'boolean' ? a.enabled : !source.enabled;
       message = 'Видимость календаря изменена';
       break;
     }
@@ -490,6 +511,7 @@ export function applyAction(
           s,
           { type: 'create', title, cardType, tags: [tag] },
           now,
+          makeId,
         );
         c.notes = 'Пример карточки. Измените или удалите её.';
         if (cardType === 'sequence')
@@ -497,7 +519,7 @@ export function applyAction(
             'Позвонить электрику',
             'Договориться о времени',
             'Запланировать визит',
-          ].map((title) => ({ id: id(), title, done: false }));
+          ].map((title) => ({ id: makeId(), title, done: false }));
         if (cardType === 'project') {
           addCard(
             s,
@@ -508,6 +530,7 @@ export function applyAction(
               tags: ['work'],
             },
             now,
+            makeId,
           );
           c.columnId = b.columns[1].id;
         }
@@ -516,6 +539,7 @@ export function applyAction(
         s,
         { type: 'capture', title: 'Идея для следующего отпуска' },
         now,
+        makeId,
       );
       message = 'Добавлены примеры карточек';
       break;

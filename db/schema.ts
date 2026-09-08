@@ -1,4 +1,10 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
 export const workspaces = sqliteTable('workspaces', {
   ownerId: text('owner_id').primaryKey(),
   revision: integer('revision').notNull().default(0),
@@ -35,4 +41,15 @@ export const tokens = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('idx_tokens_owner').on(t.ownerId)],
+);
+
+export const mutations = sqliteTable(
+  'mutations',
+  {
+    ownerId: text('owner_id').notNull(),
+    id: text('id').notNull(),
+    hash: text('hash').notNull(),
+    revision: integer('revision').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.ownerId, t.id] })],
 );

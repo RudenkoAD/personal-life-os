@@ -20,3 +20,11 @@ Mutation flow:
 Calendar imports fetch and parse before replacing an existing snapshot. Source-scoped UID plus recurrence identity prevents cross-source conflation. Source tags apply to newly materialized occurrences; existing occurrence tags survive refresh. Failed fetches, unsupported recurrence and parse failures do not delete prior events.
 
 The REST API uses `GET /api/state` and `POST /api/actions` with `{ revision, action }`. `/api/calendars` and `/api/tokens` are browser-account-only. The MCP route has no independent write path: it selects allowed operations and calls the same `applyAction` and CAS store. Production depends on the hosting dispatcher removing spoofed identity headers and enforcing private access. Local development's mock identity is deliberately confined to localhost by the starter plugin.
+
+## Optimistic action synchronization
+
+The browser keeps a confirmed `LifeState` plus an ordered queue of deterministic mutations. Local validation and projection use the same domain reducer as the server; acknowledgements replace only the confirmed base, then remaining actions replay. Generated IDs derive from a validated mutation UUID and allocation slot, covering project boards, columns, steps, reviews and demo data. Desired boolean values replace ambiguous toggles. Review completion saves its notes and interval atomically.
+
+`mutations` has a composite owner/ID primary key and stores only a canonical payload hash and committed revision. Its insert shares the workspace CAS transaction, including source credential deletion. Duplicate requests check receipts before revision; current state is returned rather than an old response snapshot. `/api/state?mutations=...` acknowledges only receipts at or below the returned state revision, allowing safe outbox recovery.
+
+Only unsent action drafts live in account-scoped, tab-local sessionStorage. CalDAV credentials, ICS text and remote calendar jobs are never stored in the outbox. The 100-action bound, bounded retries, explicit rejected-action cancellation, and unload warning limit loss or repeated work without treating browser storage as the authoritative database.

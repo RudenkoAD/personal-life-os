@@ -134,3 +134,64 @@ test('CalDAV credentials follow atomic CAS and owner-scoped deletion', async () 
   await saveState(owner, after.revision, next, { kind: 'delete', id: put.id });
   assert.equal(await read(), null);
 });
+test('mutation receipts are owner scoped and atomic with state and credential deletion', async () => {
+  const { mutationReceipt, acknowledgedMutations } =
+    await import('../db/store.ts');
+  const owner = 'receipt-owner',
+    id = crypto.randomUUID();
+  const before = await loadState(owner),
+    after = applyAction(before, { type: 'capture', title: 'Receipt' });
+  await saveState(
+    owner,
+    before.revision,
+    after,
+    {
+      kind: 'put',
+      id: 'receipt-feed',
+      url: 'https://calendar.google.com/fixture',
+    },
+    { id, hash: 'hash' },
+  );
+  assert.equal((await mutationReceipt(owner, id)).revision, after.revision);
+  assert.equal(await mutationReceipt('different-owner', id), null);
+  assert.deepEqual(
+    await acknowledgedMutations(owner, [id], before.revision),
+    [],
+  );
+  assert.deepEqual(await acknowledgedMutations(owner, [id], after.revision), [
+    id,
+  ]);
+  const next = applyAction(after, { type: 'capture', title: 'Must roll back' });
+  await assert.rejects(() =>
+    saveState(
+      owner,
+      after.revision,
+      next,
+      { kind: 'delete', id: 'receipt-feed' },
+      { id, hash: 'different' },
+    ),
+  );
+  assert.deepEqual(await loadState(owner), after);
+  assert.ok(
+    await rawDb()
+      .prepare('SELECT id FROM feeds WHERE id = ?')
+      .bind('receipt-feed')
+      .first(),
+  );
+  const removeId = crypto.randomUUID();
+  await saveState(
+    owner,
+    after.revision,
+    next,
+    { kind: 'delete', id: 'receipt-feed' },
+    { id: removeId, hash: 'remove' },
+  );
+  assert.equal(
+    await rawDb()
+      .prepare('SELECT id FROM feeds WHERE id = ?')
+      .bind('receipt-feed')
+      .first(),
+    null,
+  );
+  assert.ok(await mutationReceipt(owner, removeId));
+});

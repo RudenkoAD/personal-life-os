@@ -52,6 +52,8 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { CalendarGrid } from '@/components/calendar-grid';
+import { useSyncedDraft } from '@/hooks/use-synced-draft';
+import { SyncQueue, type SyncSnapshot } from '@/lib/sync-queue';
 import { apiRequest, ApiError } from '@/lib/api-client';
 import DockWorkspace from '@/components/dock-workspace';
 import type { DockPanelId } from '@/lib/dock-layout';
@@ -227,7 +229,7 @@ function EmptyState({
     </div>
   );
 }
-export default function Workspace() {
+export default function Workspace({ ownerId }: { ownerId: string }) {
   const [state, setState] = useState<LifeState | null>(null),
     stateRef = useRef<LifeState | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -244,8 +246,6 @@ export default function Workspace() {
     capture?: boolean;
   }>({ panel: 'board', request: 0 });
   const [loading, setLoading] = useState(true),
-    [pending, setPending] = useState(false),
-    busy = useRef(false),
     [loadError, setLoadError] = useState(''),
     [notice, setNotice] = useState(''),
     [failure, setFailure] = useState(''),
@@ -267,23 +267,84 @@ export default function Workspace() {
     [calendarMode, setCalendarMode] = useState('day'),
     [dragged, setDragged] = useState<string | null>(null),
     [dropTarget, setDropTarget] = useState<string | null>(null);
+  const queueRef = useRef<SyncQueue | null>(null);
+  const [sync, setSync] = useState<SyncSnapshot>({
+    state: null,
+    count: 0,
+    status: 'loading',
+    error: '',
+    canDiscard: false,
+    needsSignIn: false,
+    calendarPending: false,
+    storageError: '',
+    discardCount: 0,
+  });
+  const pending = !state;
   const update = useCallback((data: LifeState) => {
     stateRef.current = data;
     setState(data);
   }, []);
   const reload = useCallback(async () => {
-    try {
-      const data = await apiRequest<LifeState>('/api/state');
-      setNeedsSignIn(false);
-      update(data);
-      setLoadError('');
-    } catch (e) {
-      setLoadError((e as Error).message);
-      setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
-    } finally {
-      setLoading(false);
-    }
-  }, [update]);
+    await queueRef.current?.retry();
+  }, []);
+  useEffect(() => {
+    const storageKey = `life-os-outbox-v1:${ownerId}`;
+    const queue = new SyncQueue({
+      load: (ids) =>
+        apiRequest<{ state: LifeState; applied: string[] }>(
+          `/api/state?mutations=${encodeURIComponent(ids.join(','))}`,
+        ),
+      send: (revision, mutation) =>
+        apiRequest<LifeState>('/api/actions', { revision, mutation }, 20000),
+      remote: (path, payload) => apiRequest<LifeState>(path, payload),
+      read: () => {
+        let raw: string | null;
+        try {
+          raw = sessionStorage.getItem(storageKey);
+        } catch {
+          return [];
+        }
+        return raw ? JSON.parse(raw) : [];
+      },
+      write: (mutations) => {
+        if (mutations.length)
+          sessionStorage.setItem(storageKey, JSON.stringify(mutations));
+        else sessionStorage.removeItem(storageKey);
+      },
+      changed: (snapshot) => {
+        setSync(snapshot);
+        if (snapshot.state) update(snapshot.state);
+        setLoading(snapshot.status === 'loading');
+        setLoadError(snapshot.state ? '' : snapshot.error);
+        setNeedsSignIn(snapshot.needsSignIn);
+      },
+      remoteError: (e) => {
+        setFailure(
+          e instanceof Error ? e.message : 'Не удалось обновить календарь',
+        );
+        setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
+      },
+    });
+    queueRef.current = queue;
+    void queue.start();
+    const online = () => {
+      if (queue.snapshot().count || queue.snapshot().error) void queue.retry();
+    };
+    const leaving = (e: BeforeUnloadEvent) => {
+      if (queue.snapshot().count) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('online', online);
+    window.addEventListener('beforeunload', leaving);
+    return () => {
+      queue.stop();
+      queueRef.current = null;
+      window.removeEventListener('online', online);
+      window.removeEventListener('beforeunload', leaving);
+    };
+  }, [ownerId, update]);
   const focusInboxCapture = useCallback(() => {
     setNavigationOpen(false);
     setView('inbox');
@@ -294,7 +355,6 @@ export default function Workspace() {
     }));
   }, []);
   useEffect(() => {
-    void reload();
     if (new URLSearchParams(location.search).get('capture') === '1') {
       focusInboxCapture();
     }
@@ -321,36 +381,22 @@ export default function Workspace() {
       payload: Record<string, unknown>,
       success = 'Сохранено',
     ) => {
-      if (busy.current || !stateRef.current) return false;
-      busy.current = true;
-      setPending(true);
       setFailure('');
-      try {
-        const data = await apiRequest<LifeState>(path, {
-          ...payload,
-          revision: stateRef.current.revision,
-        });
-        setNeedsSignIn(false);
-        update(data);
-        if (success) setNotice(success);
-        return true;
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 409) await reload();
-        setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
-        setFailure((e as Error).message);
-        return false;
-      } finally {
-        busy.current = false;
-        setPending(false);
-      }
+      const ok = (await queueRef.current?.remote(path, payload)) ?? false;
+      if (ok && success) setNotice(success);
+      return ok;
     },
-    [reload, update],
+    [],
   );
-  const act = useCallback(
-    (action: Action, success?: string) =>
-      request('/api/actions', { action }, success),
-    [request],
-  );
+  const act = useCallback(async (action: Action, _success?: string) => {
+    try {
+      setFailure('');
+      return queueRef.current?.enqueue(action) ?? false;
+    } catch (e) {
+      setFailure((e as Error).message);
+      return false;
+    }
+  }, []);
   useEffect(() => {
     const t = setInterval(async () => {
       for (const source of stateRef.current?.sources ?? []) {
@@ -358,7 +404,7 @@ export default function Workspace() {
           source.kind !== 'file' &&
           Date.now() - Date.parse(source.lastSynced) > 15 * 60000 &&
           Date.now() - (lastSyncAttempt.current[source.id] ?? 0) > 15 * 60000 &&
-          !busy.current
+          queueRef.current?.snapshot().count === 0
         ) {
           lastSyncAttempt.current[source.id] = Date.now();
           const ok = await request(
@@ -1007,6 +1053,27 @@ export default function Workspace() {
   ) : null;
   const feedback = (
     <>
+      {sync.error && state && (
+        <div className="error-banner sync-banner" role="alert">
+          <span>Синхронизация приостановлена. {sync.error}</span>
+          <button onClick={() => void queueRef.current?.retry()}>
+            Повторить
+          </button>
+          {sync.canDiscard && (
+            <button onClick={() => queueRef.current?.discardRejected()}>
+              {sync.discardCount > 1
+                ? `Отменить это и зависимые изменения (${sync.discardCount})`
+                : 'Отменить это изменение'}
+            </button>
+          )}
+          {sync.needsSignIn && <a href="/">Войти снова</a>}
+        </div>
+      )}
+      {sync.storageError && (
+        <div className="error-banner" role="alert">
+          {sync.storageError}
+        </div>
+      )}
       {failure && (
         <div className="error-banner" role="alert">
           <span>{failure}</span>
@@ -1265,12 +1332,22 @@ export default function Workspace() {
               </>
             )}
             <div className="topbar-right">
-              {pending && (
-                <span className="save-indicator" role="status">
-                  <span />
-                  Сохраняем…
-                </span>
-              )}
+              <span
+                className={`save-indicator sync-status ${sync.error ? 'sync-error' : ''}`}
+                role="status"
+                title={sync.error || undefined}
+              >
+                {sync.status === 'saved' ? <CheckCheck size={15} /> : <span />}
+                {sync.status === 'saved'
+                  ? 'Сохранено'
+                  : sync.status === 'loading'
+                    ? 'Загружаем…'
+                    : sync.error
+                      ? `Не сохранено: ${sync.count}`
+                      : sync.status === 'retrying'
+                        ? `Ждём связь · ${sync.count}`
+                        : `Синхронизация · ${sync.count}`}
+              </span>
               {!isDockView && (
                 <button
                   className="icon-btn"
@@ -1282,9 +1359,10 @@ export default function Workspace() {
               )}
             </div>
           </header>
-          {isDockView && (failure || notice) && (
-            <div className="dock-feedback">{feedback}</div>
-          )}
+          {isDockView &&
+            (failure || notice || sync.error || sync.storageError) && (
+              <div className="dock-feedback">{feedback}</div>
+            )}
           <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
             {!isDockView && (
               <>
@@ -1562,7 +1640,7 @@ export default function Workspace() {
                                 <button
                                   className="icon-btn"
                                   aria-label={`Обновить ${s.title}`}
-                                  disabled={pending}
+                                  disabled={sync.calendarPending}
                                   onClick={() =>
                                     void request(
                                       '/api/calendars',
@@ -1798,7 +1876,7 @@ export default function Workspace() {
         tags={state?.tags ?? []}
         open={importOpen}
         setOpen={setImportOpen}
-        pending={pending}
+        pending={sync.calendarPending}
         submit={(payload) =>
           request('/api/calendars', payload, 'Календарь добавлен')
         }
@@ -1822,18 +1900,18 @@ function CardDetails({
   openProject: () => void;
 }) {
   const detailsFormId = useId();
-  const [title, setTitle] = useState(card.title),
-    [notes, setNotes] = useState(card.notes),
-    [tags, setTags] = useState(card.tags),
-    [type, setType] = useState(card.type),
-    [start, setStart] = useState(localInput(card.start)),
-    [duration, setDuration] = useState(
+  const [title, setTitle] = useSyncedDraft(card.title),
+    [notes, setNotes] = useSyncedDraft(card.notes),
+    [tags, setTags] = useSyncedDraft(card.tags),
+    [type, setType] = useSyncedDraft(card.type),
+    [start, setStart] = useSyncedDraft(localInput(card.start)),
+    [duration, setDuration] = useSyncedDraft(
       card.start && card.end
         ? String((Date.parse(card.end) - Date.parse(card.start)) / 60000)
         : '60',
     ),
-    [target, setTarget] = useState(card.boardId),
-    [column, setColumn] = useState(card.columnId),
+    [target, setTarget] = useSyncedDraft(card.boardId),
+    [column, setColumn] = useSyncedDraft(card.columnId),
     [step, setStep] = useState(''),
     [remove, setRemove] = useState(false);
   const save = async (e: FormEvent) => {
@@ -2146,8 +2224,8 @@ function ReviewPanel({
   addPrompt: () => void;
   capturePrompt: (title: string) => void;
 }) {
-  const [notes, setNotes] = useState(r.notes),
-    [interval, setIntervalValue] = useState(String(r.intervalDays));
+  const [notes, setNotes] = useSyncedDraft(r.notes),
+    [interval, setIntervalValue] = useSyncedDraft(String(r.intervalDays));
   const done = r.prompts.filter((p) => p.done).length;
   return (
     <section className="review-card">
@@ -2241,24 +2319,14 @@ function ReviewPanel({
             disabled={pending || !r.prompts.length || done !== r.prompts.length}
             onClick={async () => {
               if (
-                await act(
-                  {
-                    type: 'review.update',
-                    id: r.id,
-                    notes,
-                    intervalDays: Number(interval),
-                  },
-                  '',
-                )
-              ) {
-                if (
-                  await act(
-                    { type: 'review.finish', id: r.id },
-                    'Обзор завершён. Следующая дата обновлена.',
-                  )
-                )
-                  setNotes('');
-              }
+                await act({
+                  type: 'review.finish',
+                  id: r.id,
+                  notes,
+                  intervalDays: Number(interval),
+                })
+              )
+                setNotes('');
             }}
           >
             <CheckCheck size={17} />

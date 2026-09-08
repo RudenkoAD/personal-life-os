@@ -2,10 +2,17 @@
 export class ApiError extends Error {
   status: number;
   needsSignIn: boolean;
-  constructor(message: string, status: number, needsSignIn = false) {
+  responseIsJson: boolean;
+  constructor(
+    message: string,
+    status: number,
+    needsSignIn = false,
+    responseIsJson = false,
+  ) {
     super(message);
     this.status = status;
     this.needsSignIn = needsSignIn;
+    this.responseIsJson = responseIsJson;
   }
 }
 export async function readApiResponse<T>(response: Response): Promise<T> {
@@ -56,6 +63,7 @@ export async function readApiResponse<T>(response: Response): Promise<T> {
         : `Ошибка приложения (HTTP ${status}).`,
       status,
       status === 401,
+      true,
     );
   }
   return data as T;
@@ -63,12 +71,14 @@ export async function readApiResponse<T>(response: Response): Promise<T> {
 export async function apiRequest<T>(
   path: string,
   payload?: Record<string, unknown>,
+  timeoutMs = 60000,
 ): Promise<T> {
   const response = await fetch(path, {
     method: payload ? 'POST' : 'GET',
     credentials: 'same-origin',
     redirect: 'manual',
     cache: 'no-store',
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       Accept: 'application/json',
       ...(payload ? { 'Content-Type': 'application/json' } : {}),
