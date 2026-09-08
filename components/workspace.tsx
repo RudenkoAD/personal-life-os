@@ -50,6 +50,14 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -219,6 +227,7 @@ export default function Workspace() {
     [notice, setNotice] = useState(''),
     [failure, setFailure] = useState('');
   const [capture, setCapture] = useState(''),
+    [inboxCapture, setInboxCapture] = useState(''),
     captureRef = useRef<HTMLInputElement>(null),
     [selected, setSelected] = useState<string | null>(null),
     [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null),
@@ -229,7 +238,8 @@ export default function Workspace() {
   const [day, setDay] = useState(dateKey()),
     [calendarMode, setCalendarMode] = useState('week'),
     [mobileCapture, setMobileCapture] = useState(false),
-    [dragged, setDragged] = useState<string | null>(null);
+    [dragged, setDragged] = useState<string | null>(null),
+    [dropTarget, setDropTarget] = useState<string | null>(null);
   const update = useCallback((data: LifeState) => {
     stateRef.current = data;
     setState(data);
@@ -419,10 +429,24 @@ export default function Workspace() {
       setNewForm(null);
     }
   };
+  const endDrag = () => {
+    setDragged(null);
+    setDropTarget(null);
+  };
+  const acceptDrop = (e: React.DragEvent, target: string) => {
+    if (pending || !e.dataTransfer.types.includes('text/life-card')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget(target);
+  };
+  const leaveDrop = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+      setDropTarget(null);
+  };
   const dropMove = (e: React.DragEvent, col: string) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/life-card');
-    setDragged(null);
+    endDrag();
     if (id && board)
       void act(
         { type: 'move', id, boardId: board.id, columnId: col },
@@ -460,7 +484,7 @@ export default function Workspace() {
         e.dataTransfer.effectAllowed = 'move';
         setDragged(c.id);
       }}
-      onDragEnd={() => setDragged(null)}
+      onDragEnd={endDrag}
     >
       <div className="card-kind">
         <span>
@@ -531,6 +555,40 @@ export default function Workspace() {
           <Check size={13} />
         </button>
       </div>
+      {c.placement === 'inbox' && view === 'board' && board && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className="inbox-move-button"
+            disabled={pending}
+            aria-label={`Переместить «${c.title}» на доску «${board.title}»`}
+          >
+            <PanelsTopLeft size={14} /> На доску <ArrowRight size={14} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="inbox-move-menu" align="start">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{board.title}</DropdownMenuLabel>
+              {board.columns.map((col) => (
+                <DropdownMenuItem
+                  key={col.id}
+                  onClick={() =>
+                    void act(
+                      {
+                        type: 'move',
+                        id: c.id,
+                        boardId: board.id,
+                        columnId: col.id,
+                      },
+                      `Перемещено в «${col.title}»`,
+                    )
+                  }
+                >
+                  {col.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </article>
   );
   const navItems: [View, string, typeof Inbox][] = [
@@ -919,210 +977,327 @@ export default function Workspace() {
                   </div>
                 )}
                 {view === 'board' && board && (
-                  <div className="board-with-agenda">
-                    <div className="board-area">
-                      <div className="board-tools">
-                        <span>
-                          <PanelsTopLeft size={15} /> Доска{' '}
-                          <span className="muted">
-                            ·{' '}
-                            {
-                              visible.filter(
-                                (c) =>
-                                  c.placement === 'board' &&
-                                  c.boardId === board.id,
-                              ).length
-                            }{' '}
-                            карточек
-                          </span>
+                  <div className="board-workspace">
+                    <aside
+                      className={`board-inbox ${dropTarget === 'inbox' ? 'drop-active' : ''}`}
+                      aria-label="Inbox рядом с доской"
+                      onDragOver={(e) => acceptDrop(e, 'inbox')}
+                      onDragLeave={leaveDrop}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const id = e.dataTransfer.getData('text/life-card');
+                        endDrag();
+                        if (
+                          id &&
+                          state.cards.some(
+                            (c) => c.id === id && c.placement !== 'inbox',
+                          )
+                        )
+                          void act(
+                            { type: 'inbox', id },
+                            'Возвращено во входящие',
+                          );
+                      }}
+                    >
+                      <div className="board-inbox-heading">
+                        <h2>
+                          <Inbox size={18} /> Inbox
+                        </h2>
+                        <span
+                          className="count"
+                          aria-label={`${inbox.length} входящих`}
+                        >
+                          {inbox.length}
                         </span>
-                        <div>
-                          <button
-                            className="text-button"
-                            onClick={() =>
-                              setNewForm({
-                                kind: 'renameBoard',
-                                title: board.title,
-                              })
-                            }
-                          >
-                            Переименовать
-                          </button>
-                          <button
-                            className="text-button"
-                            onClick={() =>
-                              setNewForm({ kind: 'column', title: '' })
-                            }
-                          >
-                            <Plus size={14} />
-                            Колонка
-                          </button>
-                        </div>
                       </div>
-                      <div className="board-grid">
-                        {board.columns.map((col, i) => (
-                          <section
-                            className="column"
-                            key={col.id}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => dropMove(e, col.id)}
-                          >
-                            <h2>
-                              <span className={`status-dot tone-${i % 4}`} />
-                              <button
-                                onClick={() =>
-                                  setNewForm({
-                                    kind: 'renameColumn',
-                                    id: col.id,
-                                    title: col.title,
-                                  })
-                                }
-                              >
-                                {col.title}
-                              </button>
-                              <span className="count">
-                                {
-                                  visible.filter(
+                      <form
+                        className="inbox-capture"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (
+                            await act(
+                              { type: 'capture', title: inboxCapture },
+                              'Добавлено во входящие',
+                            )
+                          )
+                            setInboxCapture('');
+                        }}
+                      >
+                        <input
+                          aria-label="Новая задача в Inbox"
+                          disabled={pending}
+                          placeholder="Добавить задачу…"
+                          value={inboxCapture}
+                          onChange={(e) => setInboxCapture(e.target.value)}
+                          maxLength={200}
+                          required
+                        />
+                        <button
+                          aria-label="Добавить во входящие"
+                          type="submit"
+                          disabled={pending || !inboxCapture.trim()}
+                        >
+                          <Plus size={18} />
+                        </button>
+                      </form>
+                      <p className="board-inbox-hint">
+                        Перетащите задачу в нужную колонку справа.
+                      </p>
+                      {state.cards.filter((c) => c.placement === 'inbox')
+                        .length > inbox.length && (
+                        <button
+                          className="inbox-filter-note"
+                          onClick={() => {
+                            setScope('all');
+                            setQuery('');
+                            setShowDone(true);
+                          }}
+                        >
+                          Часть входящих скрыта фильтрами. Показать все
+                        </button>
+                      )}
+                      <div className="board-inbox-list">
+                        {inbox.length ? (
+                          inbox.map((c) => cardTile(c, true))
+                        ) : (
+                          <div className="board-inbox-empty">
+                            <Inbox size={25} />
+                            <b>
+                              {scope !== 'all' || query || !showDone
+                                ? 'Нет подходящих задач'
+                                : 'Всё разобрано'}
+                            </b>
+                            <p>
+                              Новые мысли можно записать здесь и сразу
+                              распределить по доске.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="inbox-return-hint">
+                        <ArrowDownToLine size={15} />
+                        <span>Сюда можно вернуть задачу с доски</span>
+                      </div>
+                    </aside>
+                    <div className="board-with-agenda">
+                      <div className="board-area">
+                        <div className="board-tools">
+                          <span>
+                            <PanelsTopLeft size={15} /> Доска{' '}
+                            <span className="muted">
+                              ·{' '}
+                              {
+                                visible.filter(
+                                  (c) =>
+                                    c.placement === 'board' &&
+                                    c.boardId === board.id,
+                                ).length
+                              }{' '}
+                              карточек
+                            </span>
+                          </span>
+                          <div>
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                setNewForm({
+                                  kind: 'renameBoard',
+                                  title: board.title,
+                                })
+                              }
+                            >
+                              Переименовать
+                            </button>
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                setNewForm({ kind: 'column', title: '' })
+                              }
+                            >
+                              <Plus size={14} />
+                              Колонка
+                            </button>
+                          </div>
+                        </div>
+                        <div className="board-grid">
+                          {board.columns.map((col, i) => (
+                            <section
+                              className={`column ${dropTarget === col.id ? 'drop-active' : ''}`}
+                              key={col.id}
+                              aria-label={`Колонка «${col.title}»`}
+                              onDragOver={(e) => acceptDrop(e, col.id)}
+                              onDragLeave={leaveDrop}
+                              onDrop={(e) => dropMove(e, col.id)}
+                            >
+                              <h2>
+                                <span className={`status-dot tone-${i % 4}`} />
+                                <button
+                                  onClick={() =>
+                                    setNewForm({
+                                      kind: 'renameColumn',
+                                      id: col.id,
+                                      title: col.title,
+                                    })
+                                  }
+                                >
+                                  {col.title}
+                                </button>
+                                <span className="count">
+                                  {
+                                    visible.filter(
+                                      (c) =>
+                                        c.placement === 'board' &&
+                                        c.boardId === board.id &&
+                                        c.columnId === col.id,
+                                    ).length
+                                  }
+                                </span>
+                                <button
+                                  className="column-plus"
+                                  aria-label={`Добавить в ${col.title}`}
+                                  onClick={() => openNew(col.id)}
+                                >
+                                  <Plus size={15} />
+                                </button>
+                              </h2>
+                              <div className="column-cards">
+                                {visible
+                                  .filter(
                                     (c) =>
                                       c.placement === 'board' &&
                                       c.boardId === board.id &&
                                       c.columnId === col.id,
-                                  ).length
-                                }
-                              </span>
-                              <button
-                                className="column-plus"
-                                aria-label={`Добавить в ${col.title}`}
-                                onClick={() => openNew(col.id)}
-                              >
-                                <Plus size={15} />
-                              </button>
-                            </h2>
-                            <div className="column-cards">
-                              {visible
-                                .filter(
-                                  (c) =>
-                                    c.placement === 'board' &&
-                                    c.boardId === board.id &&
-                                    c.columnId === col.id,
-                                )
-                                .map((c) => cardTile(c))}
-                              <button
-                                className="add-card"
-                                onClick={() => openNew(col.id)}
-                              >
-                                <Plus size={16} />
-                                Добавить карточку
-                              </button>
-                            </div>
-                          </section>
-                        ))}
-                      </div>
-                      {state.cards.length === 0 && (
-                        <div className="welcome-strip">
-                          <div className="welcome-orbit">
-                            <Orbit size={28} />
-                          </div>
-                          <div>
-                            <b>Начните с одного дела</b>
-                            <p>
-                              Запишите мысль выше или посмотрите, как устроены
-                              карточки, проекты и последовательности.
-                            </p>
-                          </div>
-                          <button
-                            className="quiet-button"
-                            disabled={pending}
-                            onClick={() =>
-                              void act(
-                                { type: 'demo' },
-                                'Добавлены примеры — их можно изменить или удалить',
-                              )
-                            }
-                          >
-                            <Sparkles size={15} />
-                            Попробовать на примере
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <aside className="today-panel">
-                      <div className="today-heading">
-                        <span>
-                          <CalendarDays size={17} /> Сегодня
-                        </span>
-                        <button
-                          aria-label="Открыть календарь"
-                          onClick={() => navigate('calendar')}
-                        >
-                          <ArrowUpRight size={17} />
-                        </button>
-                      </div>
-                      <div className="today-date">
-                        {prettyDate(new Date().toISOString())}
-                        <span>МСК</span>
-                      </div>
-                      {todayItems.length ? (
-                        todayItems.map((e) => (
-                          <button
-                            className="agenda-event"
-                            key={e.id}
-                            style={{ borderLeftColor: e.color }}
-                            onClick={() =>
-                              e.card
-                                ? setSelected(e.id)
-                                : setSelectedEvent(
-                                    state.events.find((x) => x.id === e.id) ??
-                                      null,
                                   )
-                            }
-                          >
-                            <small>
-                              {clock(e.start)} — {clock(e.end)}
-                            </small>
-                            <b>{e.title}</b>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="today-empty">
-                          <CalendarClock size={26} />
-                          <b>Есть место для важного</b>
-                          <p>Сегодня пока ничего не запланировано.</p>
+                                  .map((c) => cardTile(c))}
+                                <button
+                                  className="add-card"
+                                  onClick={() => openNew(col.id)}
+                                >
+                                  <Plus size={16} />
+                                  Добавить карточку
+                                </button>
+                              </div>
+                            </section>
+                          ))}
                         </div>
-                      )}
-                      <div
-                        className={`today-drop ${dragged ? 'ready' : ''}`}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => scheduleDrop(e, dateKey(), 17)}
-                      >
-                        <CalendarDays size={18} />
-                        <span>
-                          Перетащите дело
-                          <br />
-                          на сегодня, 17:00
-                        </span>
+                        {state.cards.length === 0 && (
+                          <div className="welcome-strip">
+                            <div className="welcome-orbit">
+                              <Orbit size={28} />
+                            </div>
+                            <div>
+                              <b>Начните с одного дела</b>
+                              <p>
+                                Запишите мысль выше или посмотрите, как устроены
+                                карточки, проекты и последовательности.
+                              </p>
+                            </div>
+                            <button
+                              className="quiet-button"
+                              disabled={pending}
+                              onClick={() =>
+                                void act(
+                                  { type: 'demo' },
+                                  'Добавлены примеры — их можно изменить или удалить',
+                                )
+                              }
+                            >
+                              <Sparkles size={15} />
+                              Попробовать на примере
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <button
-                        className="agenda-link"
-                        onClick={() => navigate('calendar')}
-                      >
-                        Открыть календарь
-                        <ArrowRight size={15} />
-                      </button>
-                      {state.reviews.some((r) => r.nextDue <= dateKey()) && (
-                        <button
-                          className="review-nudge"
-                          onClick={() => navigate('reviews')}
-                        >
-                          <Repeat2 size={20} />
-                          <b>Время для обзора</b>
+                      <details className="board-agenda">
+                        <summary>
+                          <CalendarDays size={16} />
                           <span>
-                            Проверьте, что сейчас важно
-                            <ArrowRight size={14} />
+                            Сегодня · {todayItems.length} запланировано
                           </span>
-                        </button>
-                      )}
-                    </aside>
+                          <ChevronRight size={16} />
+                        </summary>
+                        <aside className="today-panel">
+                          <div className="today-heading">
+                            <span>
+                              <CalendarDays size={17} /> Сегодня
+                            </span>
+                            <button
+                              aria-label="Открыть календарь"
+                              onClick={() => navigate('calendar')}
+                            >
+                              <ArrowUpRight size={17} />
+                            </button>
+                          </div>
+                          <div className="today-date">
+                            {prettyDate(new Date().toISOString())}
+                            <span>МСК</span>
+                          </div>
+                          {todayItems.length ? (
+                            todayItems.map((e) => (
+                              <button
+                                className="agenda-event"
+                                key={e.id}
+                                style={{ borderLeftColor: e.color }}
+                                onClick={() =>
+                                  e.card
+                                    ? setSelected(e.id)
+                                    : setSelectedEvent(
+                                        state.events.find(
+                                          (x) => x.id === e.id,
+                                        ) ?? null,
+                                      )
+                                }
+                              >
+                                <small>
+                                  {clock(e.start)} — {clock(e.end)}
+                                </small>
+                                <b>{e.title}</b>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="today-empty">
+                              <CalendarClock size={26} />
+                              <b>Есть место для важного</b>
+                              <p>Сегодня пока ничего не запланировано.</p>
+                            </div>
+                          )}
+                          <div
+                            className={`today-drop ${dragged ? 'ready' : ''}`}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => scheduleDrop(e, dateKey(), 17)}
+                          >
+                            <CalendarDays size={18} />
+                            <span>
+                              Перетащите дело
+                              <br />
+                              на сегодня, 17:00
+                            </span>
+                          </div>
+                          <button
+                            className="agenda-link"
+                            onClick={() => navigate('calendar')}
+                          >
+                            Открыть календарь
+                            <ArrowRight size={15} />
+                          </button>
+                          {state.reviews.some(
+                            (r) => r.nextDue <= dateKey(),
+                          ) && (
+                            <button
+                              className="review-nudge"
+                              onClick={() => navigate('reviews')}
+                            >
+                              <Repeat2 size={20} />
+                              <b>Время для обзора</b>
+                              <span>
+                                Проверьте, что сейчас важно
+                                <ArrowRight size={14} />
+                              </span>
+                            </button>
+                          )}
+                        </aside>
+                      </details>
+                    </div>
                   </div>
                 )}
                 {view === 'inbox' &&

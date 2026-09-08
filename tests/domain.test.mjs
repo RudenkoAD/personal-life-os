@@ -267,3 +267,57 @@ test('sequence steps support add, toggle, delete, and reject non-sequence cards'
     /Шаги доступны в последовательности/,
   );
 });
+
+test('Inbox card moves into the selected nested board column without losing content', () => {
+  let state = initialState(NOW);
+  state = createCard(state, 'Проект для разбора', 'project');
+  const project = lastCard(state, 'Проект для разбора');
+  const target = state.boards.find((b) => b.id === project.childBoardId);
+  const column = target.columns[2];
+  state = createCard(state, 'Входящая последовательность', 'sequence', {
+    notes: 'Детали из Inbox',
+    tags: ['life', 'work'],
+  });
+  const id = lastCard(state, 'Входящая последовательность').id;
+  state = action(state, { type: 'step.add', id, title: 'Первый шаг' });
+  state = action(state, {
+    type: 'step.toggle',
+    id,
+    stepId: state.cards.find((c) => c.id === id).steps[0].id,
+  });
+  state = action(state, { type: 'inbox', id });
+  const before = structuredClone(state.cards.find((c) => c.id === id));
+  assert.equal(before.placement, 'inbox');
+  const snapshot = structuredClone(state);
+  assertDomainError(
+    () =>
+      action(state, {
+        type: 'move',
+        id,
+        boardId: target.id,
+        columnId: 'deleted-column',
+      }),
+    /Колонка не найдена/,
+  );
+  assert.deepEqual(state, snapshot);
+  state = action(state, {
+    type: 'move',
+    id,
+    boardId: target.id,
+    columnId: column.id,
+  });
+  assert.deepEqual(
+    state.cards.find((c) => c.id === id),
+    { ...before, placement: 'board', boardId: target.id, columnId: column.id },
+  );
+  assert.equal(state.cards.filter((c) => c.id === id).length, 1);
+  assert.equal(
+    state.cards.some((c) => c.id === id && c.placement === 'inbox'),
+    false,
+  );
+  state = action(state, { type: 'inbox', id });
+  assert.deepEqual(
+    state.cards.find((c) => c.id === id),
+    { ...before, boardId: target.id, columnId: column.id },
+  );
+});
