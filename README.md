@@ -27,11 +27,12 @@ API tests only accept localhost and clean up their own cards, sources and tokens
 ## Included
 
 - Instant capture into Inbox, with keyboard focus via Ctrl/Cmd+K.
+- Dockable Inbox, board and calendar panels in one workspace: drag a panel header to another panel edge, resize dividers, hide, maximize and reset. Menus provide keyboard alternatives; mobile stacks the panels. Layout preferences persist on this device only.
 - Multiple boards and custom columns; task, sequence and project cards.
 - Nested project boards, parent navigation and cycle prevention.
 - Flexible sequence checklist steps.
 - Scope/tag filtering across Inbox, boards, projects and calendar.
-- Exclusive board/calendar placement. Drag between columns, onto a calendar hour and back to the board. Keyboard/touch alternatives in task details.
+- Exclusive Inbox/board/calendar placement. Drag between columns, directly from Inbox or a board onto a calendar hour, and back to a board column or Inbox. Keyboard/touch alternatives in task details.
 - Server persistence per authenticated owner, optimistic revision checking and a bounded activity history.
 - Calendar day/week views in Europe/Moscow. ICS file import and read-only subscriptions, source visibility and event provenance. Recurrence expansion with exceptions and cancellation handling.
 - Review lists, editable notes and interval, completion history, next-review date and creation of Inbox tasks from a prompt.
@@ -41,7 +42,7 @@ API tests only accept localhost and clean up their own cards, sources and tokens
 ## Explicit boundaries
 
 - Hosted first version uses private Sites access and ChatGPT identity. Yandex ID and other OAuth providers are not implemented.
-- Data is stored in D1, not browser storage. Each owner has an atomic, versioned workspace aggregate. This is intentionally sized for a personal workspace, with bounded counts and a 1.8 MB serialized limit; larger/multi-user deployments should migrate to normalized entity tables while preserving IDs.
+- App data is stored in D1; only dock layout preferences use browser localStorage. Each owner has an atomic, versioned workspace aggregate. This is intentionally sized for a personal workspace, with bounded counts and a 1.8 MB serialized limit; larger/multi-user deployments should migrate to normalized entity tables while preserving IDs.
 - All API mutations use optimistic revision checks. A lost response is not automatically replayed. General idempotency keys and change merging are future work.
 - Calendar source URLs are stored separately server-side and excluded from state/API/MCP responses. Subscriptions are HTTPS and limited to approved calendar hosts to prevent arbitrary server-side network access. Redirects are not followed. Other sources may be imported as ICS files.
 - Subscription polling runs **while the app is open**, at most once per source per 15 minutes. This is not an independent background sync worker. Real private calendar feeds have not been connected or tested.

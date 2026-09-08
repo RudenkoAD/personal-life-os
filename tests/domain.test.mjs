@@ -321,3 +321,60 @@ test('Inbox card moves into the selected nested board column without losing cont
     { ...before, boardId: target.id, columnId: column.id },
   );
 });
+
+test('Inbox can schedule directly, reschedule, return to Inbox, and move to any board without copies', () => {
+  let state = initialState(NOW);
+  state = action(state, {
+    type: 'capture',
+    title: 'Из Inbox сразу в календарь',
+  });
+  const original = structuredClone(state.cards.at(-1));
+  const id = original.id;
+  assert.equal(original.placement, 'inbox');
+  state = action(state, {
+    type: 'schedule',
+    id,
+    start: '2026-09-09T10:00:00+03:00',
+    end: '2026-09-09T11:30:00+03:00',
+  });
+  assert.equal(state.cards.find((c) => c.id === id).placement, 'calendar');
+  state = action(state, {
+    type: 'schedule',
+    id,
+    start: '2026-09-10T13:00:00+03:00',
+    end: '2026-09-10T14:30:00+03:00',
+  });
+  let card = state.cards.find((c) => c.id === id);
+  assert.equal(Date.parse(card.end) - Date.parse(card.start), 90 * 60000);
+  assert.equal(card.boardId, original.boardId);
+  assert.equal(card.columnId, original.columnId);
+  state = action(state, { type: 'inbox', id });
+  assert.deepEqual(
+    state.cards.find((c) => c.id === id),
+    original,
+  );
+  state = action(state, { type: 'board.create', title: 'Другая доска' });
+  const board = state.boards.at(-1);
+  state = action(state, {
+    type: 'schedule',
+    id,
+    start: '2026-09-11T13:00:00+03:00',
+    end: '2026-09-11T14:30:00+03:00',
+  });
+  state = action(state, {
+    type: 'move',
+    id,
+    boardId: board.id,
+    columnId: board.columns[1].id,
+  });
+  assert.deepEqual(
+    state.cards.find((c) => c.id === id),
+    {
+      ...original,
+      placement: 'board',
+      boardId: board.id,
+      columnId: board.columns[1].id,
+    },
+  );
+  assert.equal(state.cards.filter((c) => c.id === id).length, 1);
+});

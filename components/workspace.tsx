@@ -49,6 +49,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
+import DockWorkspace from '@/components/dock-workspace';
+import type { DockPanelId } from '@/lib/dock-layout';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -128,6 +130,7 @@ type NewForm = {
     | 'renameColumn';
   title: string;
   cardType?: string;
+  placement?: 'inbox' | 'board';
   columnId?: string;
   id?: string;
 };
@@ -220,6 +223,10 @@ export default function Workspace() {
     [scope, setScope] = useState('all'),
     [query, setQuery] = useState(''),
     [showDone, setShowDone] = useState(true);
+  const [dockFocus, setDockFocus] = useState<{
+    panel: DockPanelId;
+    request: number;
+  }>({ panel: 'board', request: 0 });
   const [loading, setLoading] = useState(true),
     [pending, setPending] = useState(false),
     busy = useRef(false),
@@ -234,9 +241,13 @@ export default function Workspace() {
     [newForm, setNewForm] = useState<NewForm | null>(null),
     [importOpen, setImportOpen] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const attachCalendar = useCallback((node: HTMLDivElement | null) => {
+    calendarRef.current = node;
+    if (node) node.scrollTop = 8 * 72;
+  }, []);
   const lastSyncAttempt = useRef<Record<string, number>>({});
   const [day, setDay] = useState(dateKey()),
-    [calendarMode, setCalendarMode] = useState('week'),
+    [calendarMode, setCalendarMode] = useState('day'),
     [mobileCapture, setMobileCapture] = useState(false),
     [dragged, setDragged] = useState<string | null>(null),
     [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -262,6 +273,7 @@ export default function Workspace() {
     void reload();
     if (new URLSearchParams(location.search).get('capture') === '1') {
       setView('inbox');
+      setDockFocus({ panel: 'inbox', request: 1 });
       setMobileCapture(true);
     }
     const handle = (e: KeyboardEvent) => {
@@ -274,9 +286,8 @@ export default function Workspace() {
     return () => window.removeEventListener('keydown', handle);
   }, [reload]);
   useEffect(() => {
-    if (view === 'calendar' && calendarRef.current)
-      calendarRef.current.scrollTop = 8 * 72;
-  }, [view, calendarMode]);
+    if (calendarRef.current) calendarRef.current.scrollTop = 8 * 72;
+  }, [calendarMode]);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(''), 4500);
@@ -347,6 +358,8 @@ export default function Workspace() {
   }, [request]);
   const navigate = (next: View, id?: string) => {
     setView(next);
+    if (next === 'inbox' || next === 'board' || next === 'calendar')
+      setDockFocus((f) => ({ panel: next, request: f.request + 1 }));
     if (id) setBoardId(id);
     setSelected(null);
   };
@@ -375,7 +388,13 @@ export default function Workspace() {
     ) ?? [];
   const currentCard = state?.cards.find((c) => c.id === selected);
   const openNew = (columnId?: string) =>
-    setNewForm({ kind: 'card', title: '', cardType: 'task', columnId });
+    setNewForm({
+      kind: 'card',
+      title: '',
+      cardType: 'task',
+      columnId,
+      placement: 'board',
+    });
   const newSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!newForm || !board) return;
@@ -383,7 +402,7 @@ export default function Workspace() {
     switch (newForm.kind) {
       case 'card':
         a =
-          view === 'inbox'
+          newForm.placement === 'inbox'
             ? { type: 'capture', title: newForm.title }
             : {
                 type: 'create',
@@ -456,8 +475,8 @@ export default function Workspace() {
   const scheduleDrop = (e: React.DragEvent, date: string, hour: number) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/life-card');
-    setDragged(null);
-    if (!id) return;
+    endDrag();
+    if (!id || pending) return;
     const c = state?.cards.find((c) => c.id === id);
     const start = new Date(
       `${date}T${String(hour).padStart(2, '0')}:00:00+03:00`,
@@ -555,7 +574,7 @@ export default function Workspace() {
           <Check size={13} />
         </button>
       </div>
-      {c.placement === 'inbox' && view === 'board' && board && (
+      {c.placement === 'inbox' && board && (
         <DropdownMenu>
           <DropdownMenuTrigger
             className="inbox-move-button"
@@ -614,26 +633,380 @@ export default function Workspace() {
     calendarMode === 'day'
       ? [day]
       : Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-  const todayItems = [
-    ...scheduled
-      .filter((c) => c.start && dateKey(new Date(c.start)) === dateKey())
-      .map((c) => ({
-        id: c.id,
-        title: c.title,
-        start: c.start!,
-        end: c.end!,
-        color: '#6677dd',
-        card: true,
-      })),
-    ...events
-      .filter((e) => dateKey(new Date(e.start)) === dateKey())
-      .map((e) => ({
-        ...e,
-        color:
-          state?.sources.find((s) => s.id === e.sourceId)?.color ?? '#6677dd',
-        card: false,
-      })),
-  ].sort((a, b) => a.start.localeCompare(b.start));
+  const isDockView =
+    view === 'board' || view === 'inbox' || view === 'calendar';
+  const inboxPanel =
+    state && board ? (
+      <aside
+        className={`board-inbox ${dropTarget === 'inbox' ? 'drop-active' : ''}`}
+        aria-label="Неразобранные задачи"
+        onDragOver={(e) => acceptDrop(e, 'inbox')}
+        onDragLeave={leaveDrop}
+        onDrop={(e) => {
+          e.preventDefault();
+          const id = e.dataTransfer.getData('text/life-card');
+          endDrag();
+          if (
+            id &&
+            state.cards.some((c) => c.id === id && c.placement !== 'inbox')
+          )
+            void act({ type: 'inbox', id }, 'Возвращено во входящие');
+        }}
+      >
+        <form
+          className="inbox-capture"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (
+              await act(
+                { type: 'capture', title: inboxCapture },
+                'Добавлено во входящие',
+              )
+            )
+              setInboxCapture('');
+          }}
+        >
+          <input
+            aria-label="Новая задача в Inbox"
+            disabled={pending}
+            placeholder="Добавить задачу…"
+            value={inboxCapture}
+            onChange={(e) => setInboxCapture(e.target.value)}
+            maxLength={200}
+            required
+          />
+          <button
+            aria-label="Добавить во входящие"
+            type="submit"
+            disabled={pending || !inboxCapture.trim()}
+          >
+            <Plus size={18} />
+          </button>
+        </form>
+        <p className="board-inbox-hint">
+          Перетащите задачу в колонку доски или на время в календаре.
+        </p>
+        {state.cards.filter((c) => c.placement === 'inbox').length >
+          inbox.length && (
+          <button
+            className="inbox-filter-note"
+            onClick={() => {
+              setScope('all');
+              setQuery('');
+              setShowDone(true);
+            }}
+          >
+            Часть входящих скрыта фильтрами. Показать все
+          </button>
+        )}
+        <div className="board-inbox-list">
+          {inbox.length ? (
+            inbox.map((c) => cardTile(c, true))
+          ) : (
+            <div className="board-inbox-empty">
+              <Inbox size={25} />
+              <b>
+                {scope !== 'all' || query || !showDone
+                  ? 'Нет подходящих задач'
+                  : 'Всё разобрано'}
+              </b>
+              <p>
+                Новые мысли можно записать здесь и сразу распределить по доске.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="inbox-return-hint">
+          <ArrowDownToLine size={15} />
+          <span>Сюда можно вернуть задачу с доски или календаря</span>
+        </div>
+      </aside>
+    ) : null;
+  const boardPanel =
+    state && board ? (
+      <div className="board-area">
+        <div className="dock-board-navigation">
+          {' '}
+          {board.parentCardId && (
+            <button
+              className="breadcrumb"
+              onClick={() =>
+                navigate(
+                  'board',
+                  state?.cards.find((c) => c.id === board.parentCardId)
+                    ?.boardId ?? 'main',
+                )
+              }
+            >
+              <ChevronLeft size={14} />К родительской доске
+            </button>
+          )}
+          <SelectBox
+            value={board.id}
+            onChange={(id) => navigate('board', id)}
+            label="Выбрать доску"
+            options={state.boards.map((b) => ({ value: b.id, label: b.title }))}
+          />
+        </div>
+        <div className="board-tools">
+          <span>
+            <PanelsTopLeft size={15} /> Доска{' '}
+            <span className="muted">
+              ·{' '}
+              {
+                visible.filter(
+                  (c) => c.placement === 'board' && c.boardId === board.id,
+                ).length
+              }{' '}
+              карточек
+            </span>
+          </span>
+          <div>
+            <button
+              className="text-button"
+              onClick={() =>
+                setNewForm({
+                  kind: 'renameBoard',
+                  title: board.title,
+                })
+              }
+            >
+              Переименовать
+            </button>
+            <button
+              className="text-button"
+              onClick={() => setNewForm({ kind: 'column', title: '' })}
+            >
+              <Plus size={14} />
+              Колонка
+            </button>
+          </div>
+        </div>
+        <div className="board-grid">
+          {board.columns.map((col, i) => (
+            <section
+              className={`column ${dropTarget === col.id ? 'drop-active' : ''}`}
+              key={col.id}
+              aria-label={`Колонка «${col.title}»`}
+              onDragOver={(e) => acceptDrop(e, col.id)}
+              onDragLeave={leaveDrop}
+              onDrop={(e) => dropMove(e, col.id)}
+            >
+              <h2>
+                <span className={`status-dot tone-${i % 4}`} />
+                <button
+                  onClick={() =>
+                    setNewForm({
+                      kind: 'renameColumn',
+                      id: col.id,
+                      title: col.title,
+                    })
+                  }
+                >
+                  {col.title}
+                </button>
+                <span className="count">
+                  {
+                    visible.filter(
+                      (c) =>
+                        c.placement === 'board' &&
+                        c.boardId === board.id &&
+                        c.columnId === col.id,
+                    ).length
+                  }
+                </span>
+                <button
+                  className="column-plus"
+                  aria-label={`Добавить в ${col.title}`}
+                  onClick={() => openNew(col.id)}
+                >
+                  <Plus size={15} />
+                </button>
+              </h2>
+              <div className="column-cards">
+                {visible
+                  .filter(
+                    (c) =>
+                      c.placement === 'board' &&
+                      c.boardId === board.id &&
+                      c.columnId === col.id,
+                  )
+                  .map((c) => cardTile(c))}
+                <button className="add-card" onClick={() => openNew(col.id)}>
+                  <Plus size={16} />
+                  Добавить карточку
+                </button>
+              </div>
+            </section>
+          ))}
+        </div>
+        {state.cards.length === 0 && (
+          <div className="welcome-strip">
+            <div className="welcome-orbit">
+              <Orbit size={28} />
+            </div>
+            <div>
+              <b>Начните с одного дела</b>
+              <p>
+                Запишите мысль выше или посмотрите, как устроены карточки,
+                проекты и последовательности.
+              </p>
+            </div>
+            <button
+              className="quiet-button"
+              disabled={pending}
+              onClick={() =>
+                void act(
+                  { type: 'demo' },
+                  'Добавлены примеры — их можно изменить или удалить',
+                )
+              }
+            >
+              <Sparkles size={15} />
+              Попробовать на примере
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null;
+  const calendarPanel = state ? (
+    <div className="dock-calendar-content">
+      <div className="calendar-toolbar">
+        <div>
+          <button className="quiet-button" onClick={() => setDay(dateKey())}>
+            Сегодня
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Предыдущий период"
+            onClick={() =>
+              setDay(addDays(day, calendarMode === 'day' ? -1 : -7))
+            }
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Следующий период"
+            onClick={() => setDay(addDays(day, calendarMode === 'day' ? 1 : 7))}
+          >
+            <ChevronRight size={18} />
+          </button>
+          <b>
+            {prettyDate(`${days[0]}T12:00:00+03:00`)}
+            {days.length > 1
+              ? ' — ' + prettyDate(`${days.at(-1)}T12:00:00+03:00`)
+              : ''}
+          </b>
+        </div>
+        <SelectBox
+          value={calendarMode}
+          onChange={setCalendarMode}
+          label="Вид календаря"
+          options={[
+            { value: 'day', label: 'День' },
+            { value: 'week', label: 'Неделя' },
+          ]}
+        />
+      </div>
+      <div className="calendar-layout">
+        <div className="calendar-scroll" ref={attachCalendar}>
+          <div
+            className="calendar-grid"
+            style={{
+              gridTemplateColumns: `50px repeat(${days.length}, minmax(${days.length === 1 ? '220' : '105'}px, 1fr))`,
+            }}
+          >
+            <div className="calendar-corner">МСК</div>
+            {days.map((d) => (
+              <div
+                className={`calendar-day-heading ${d === dateKey() ? 'is-today' : ''}`}
+                key={d}
+              >
+                <small>
+                  {new Intl.DateTimeFormat('ru', {
+                    weekday: 'short',
+                  }).format(new Date(`${d}T12:00:00+03:00`))}
+                </small>
+                <b>{Number(d.slice(-2))}</b>
+              </div>
+            ))}
+            <div className="all-day-label">
+              весь
+              <br />
+              день
+            </div>
+            {days.map((d) => (
+              <div key={'all-' + d} className="all-day-cell">
+                {events
+                  .filter(
+                    (e) =>
+                      e.allDay &&
+                      dateKey(new Date(e.start)) <= d &&
+                      dateKey(new Date(e.end)) > d,
+                  )
+                  .map((e) => (
+                    <button key={e.id} onClick={() => setSelectedEvent(e)}>
+                      {e.title}
+                    </button>
+                  ))}
+              </div>
+            ))}
+            {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+              <CalendarRow
+                key={hour}
+                hour={hour}
+                days={days}
+                scheduled={scheduled}
+                events={events}
+                state={state}
+                scheduleDrop={scheduleDrop}
+                setSelected={setSelected}
+                setSelectedEvent={setSelectedEvent}
+                setDragged={setDragged}
+                endDrag={endDrag}
+                pending={pending}
+                dropTarget={dropTarget}
+                acceptDrop={acceptDrop}
+                leaveDrop={leaveDrop}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="calendar-sources">
+        <span>Календари:</span>
+        <span>
+          <ScopeDot color="#6677dd" />
+          Мои задачи
+        </span>
+        {state.sources.map((s) => (
+          <label key={s.id} className="checkbox-label">
+            <Checkbox
+              checked={s.enabled}
+              disabled={pending}
+              onCheckedChange={() =>
+                void act(
+                  { type: 'source.toggle', id: s.id },
+                  'Видимость изменена',
+                )
+              }
+            />
+            <ScopeDot color={s.color} />
+            {s.title}
+          </label>
+        ))}
+        <button className="text-button" onClick={() => setImportOpen(true)}>
+          <Plus size={14} />
+          Добавить
+        </button>
+      </div>
+      <p className="muted calendar-hint">
+        Перетащите задачу на нужный час. Время Москвы. Внешние события — только
+        для чтения.
+      </p>
+    </div>
+  ) : null;
   return (
     <SidebarProvider
       style={{ '--sidebar-width': '238px' } as React.CSSProperties}
@@ -783,7 +1156,7 @@ export default function Workspace() {
             </button>
           </div>
         </header>
-        <main className="workspace">
+        <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
           <div className="heading-kicker">
             <span className="eyebrow">
               {view === 'board'
@@ -802,35 +1175,17 @@ export default function Workspace() {
           </div>
           <div className="page-title">
             <div>
-              {board?.parentCardId && view === 'board' && (
-                <button
-                  className="breadcrumb"
-                  onClick={() =>
-                    navigate(
-                      'board',
-                      state?.cards.find((c) => c.id === board.parentCardId)
-                        ?.boardId ?? 'main',
-                    )
-                  }
-                >
-                  <ChevronLeft size={14} />К родительской доске
-                </button>
-              )}
-              <h1>{titles[view]}</h1>
+              <h1>{isDockView ? 'Моё пространство' : titles[view]}</h1>
               <p className="page-subtitle">
-                {view === 'board'
-                  ? 'Освободите голову. Выберите следующий шаг.'
-                  : view === 'inbox'
-                    ? `${inbox.length} записей, которым нужно найти своё место.`
-                    : view === 'calendar'
-                      ? 'Когда именно вы займётесь важным. Время Москвы, UTC+3.'
-                      : view === 'projects'
-                        ? 'Большие замыслы начинаются с небольших шагов.'
-                        : view === 'reviews'
-                          ? 'Постоянные списки помогают помнить о важных сферах.'
-                          : view === 'agent'
-                            ? 'Доступ к вашим задачам через общие правила приложения.'
-                            : 'Внешние события рядом с вашими планами.'}
+                {isDockView
+                  ? 'Записать, разобрать, запланировать — всё перед глазами.'
+                  : view === 'projects'
+                    ? 'Большие замыслы начинаются с небольших шагов.'
+                    : view === 'reviews'
+                      ? 'Постоянные списки помогают помнить о важных сферах.'
+                      : view === 'agent'
+                        ? 'Доступ к вашим задачам через общие правила приложения.'
+                        : 'Внешние события рядом с вашими планами.'}
               </p>
             </div>
             {['board', 'inbox', 'projects'].includes(view) && (
@@ -844,7 +1199,13 @@ export default function Workspace() {
                         title: '',
                         cardType: 'project',
                       })
-                    : openNew()
+                    : view === 'inbox'
+                      ? setNewForm({
+                          kind: 'card',
+                          title: '',
+                          placement: 'inbox',
+                        })
+                      : openNew()
                 }
               >
                 <Plus size={17} />
@@ -976,396 +1337,20 @@ export default function Workspace() {
                     </label>
                   </div>
                 )}
-                {view === 'board' && board && (
-                  <div className="board-workspace">
-                    <aside
-                      className={`board-inbox ${dropTarget === 'inbox' ? 'drop-active' : ''}`}
-                      aria-label="Inbox рядом с доской"
-                      onDragOver={(e) => acceptDrop(e, 'inbox')}
-                      onDragLeave={leaveDrop}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const id = e.dataTransfer.getData('text/life-card');
-                        endDrag();
-                        if (
-                          id &&
-                          state.cards.some(
-                            (c) => c.id === id && c.placement !== 'inbox',
-                          )
-                        )
-                          void act(
-                            { type: 'inbox', id },
-                            'Возвращено во входящие',
-                          );
-                      }}
-                    >
-                      <div className="board-inbox-heading">
-                        <h2>
-                          <Inbox size={18} /> Inbox
-                        </h2>
-                        <span
-                          className="count"
-                          aria-label={`${inbox.length} входящих`}
-                        >
-                          {inbox.length}
-                        </span>
-                      </div>
-                      <form
-                        className="inbox-capture"
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (
-                            await act(
-                              { type: 'capture', title: inboxCapture },
-                              'Добавлено во входящие',
-                            )
-                          )
-                            setInboxCapture('');
-                        }}
-                      >
-                        <input
-                          aria-label="Новая задача в Inbox"
-                          disabled={pending}
-                          placeholder="Добавить задачу…"
-                          value={inboxCapture}
-                          onChange={(e) => setInboxCapture(e.target.value)}
-                          maxLength={200}
-                          required
-                        />
-                        <button
-                          aria-label="Добавить во входящие"
-                          type="submit"
-                          disabled={pending || !inboxCapture.trim()}
-                        >
-                          <Plus size={18} />
-                        </button>
-                      </form>
-                      <p className="board-inbox-hint">
-                        Перетащите задачу в нужную колонку справа.
-                      </p>
-                      {state.cards.filter((c) => c.placement === 'inbox')
-                        .length > inbox.length && (
-                        <button
-                          className="inbox-filter-note"
-                          onClick={() => {
-                            setScope('all');
-                            setQuery('');
-                            setShowDone(true);
-                          }}
-                        >
-                          Часть входящих скрыта фильтрами. Показать все
-                        </button>
-                      )}
-                      <div className="board-inbox-list">
-                        {inbox.length ? (
-                          inbox.map((c) => cardTile(c, true))
-                        ) : (
-                          <div className="board-inbox-empty">
-                            <Inbox size={25} />
-                            <b>
-                              {scope !== 'all' || query || !showDone
-                                ? 'Нет подходящих задач'
-                                : 'Всё разобрано'}
-                            </b>
-                            <p>
-                              Новые мысли можно записать здесь и сразу
-                              распределить по доске.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                      <div className="inbox-return-hint">
-                        <ArrowDownToLine size={15} />
-                        <span>Сюда можно вернуть задачу с доски</span>
-                      </div>
-                    </aside>
-                    <div className="board-with-agenda">
-                      <div className="board-area">
-                        <div className="board-tools">
-                          <span>
-                            <PanelsTopLeft size={15} /> Доска{' '}
-                            <span className="muted">
-                              ·{' '}
-                              {
-                                visible.filter(
-                                  (c) =>
-                                    c.placement === 'board' &&
-                                    c.boardId === board.id,
-                                ).length
-                              }{' '}
-                              карточек
-                            </span>
-                          </span>
-                          <div>
-                            <button
-                              className="text-button"
-                              onClick={() =>
-                                setNewForm({
-                                  kind: 'renameBoard',
-                                  title: board.title,
-                                })
-                              }
-                            >
-                              Переименовать
-                            </button>
-                            <button
-                              className="text-button"
-                              onClick={() =>
-                                setNewForm({ kind: 'column', title: '' })
-                              }
-                            >
-                              <Plus size={14} />
-                              Колонка
-                            </button>
-                          </div>
-                        </div>
-                        <div className="board-grid">
-                          {board.columns.map((col, i) => (
-                            <section
-                              className={`column ${dropTarget === col.id ? 'drop-active' : ''}`}
-                              key={col.id}
-                              aria-label={`Колонка «${col.title}»`}
-                              onDragOver={(e) => acceptDrop(e, col.id)}
-                              onDragLeave={leaveDrop}
-                              onDrop={(e) => dropMove(e, col.id)}
-                            >
-                              <h2>
-                                <span className={`status-dot tone-${i % 4}`} />
-                                <button
-                                  onClick={() =>
-                                    setNewForm({
-                                      kind: 'renameColumn',
-                                      id: col.id,
-                                      title: col.title,
-                                    })
-                                  }
-                                >
-                                  {col.title}
-                                </button>
-                                <span className="count">
-                                  {
-                                    visible.filter(
-                                      (c) =>
-                                        c.placement === 'board' &&
-                                        c.boardId === board.id &&
-                                        c.columnId === col.id,
-                                    ).length
-                                  }
-                                </span>
-                                <button
-                                  className="column-plus"
-                                  aria-label={`Добавить в ${col.title}`}
-                                  onClick={() => openNew(col.id)}
-                                >
-                                  <Plus size={15} />
-                                </button>
-                              </h2>
-                              <div className="column-cards">
-                                {visible
-                                  .filter(
-                                    (c) =>
-                                      c.placement === 'board' &&
-                                      c.boardId === board.id &&
-                                      c.columnId === col.id,
-                                  )
-                                  .map((c) => cardTile(c))}
-                                <button
-                                  className="add-card"
-                                  onClick={() => openNew(col.id)}
-                                >
-                                  <Plus size={16} />
-                                  Добавить карточку
-                                </button>
-                              </div>
-                            </section>
-                          ))}
-                        </div>
-                        {state.cards.length === 0 && (
-                          <div className="welcome-strip">
-                            <div className="welcome-orbit">
-                              <Orbit size={28} />
-                            </div>
-                            <div>
-                              <b>Начните с одного дела</b>
-                              <p>
-                                Запишите мысль выше или посмотрите, как устроены
-                                карточки, проекты и последовательности.
-                              </p>
-                            </div>
-                            <button
-                              className="quiet-button"
-                              disabled={pending}
-                              onClick={() =>
-                                void act(
-                                  { type: 'demo' },
-                                  'Добавлены примеры — их можно изменить или удалить',
-                                )
-                              }
-                            >
-                              <Sparkles size={15} />
-                              Попробовать на примере
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <details className="board-agenda">
-                        <summary>
-                          <CalendarDays size={16} />
-                          <span>
-                            Сегодня · {todayItems.length} запланировано
-                          </span>
-                          <ChevronRight size={16} />
-                        </summary>
-                        <aside className="today-panel">
-                          <div className="today-heading">
-                            <span>
-                              <CalendarDays size={17} /> Сегодня
-                            </span>
-                            <button
-                              aria-label="Открыть календарь"
-                              onClick={() => navigate('calendar')}
-                            >
-                              <ArrowUpRight size={17} />
-                            </button>
-                          </div>
-                          <div className="today-date">
-                            {prettyDate(new Date().toISOString())}
-                            <span>МСК</span>
-                          </div>
-                          {todayItems.length ? (
-                            todayItems.map((e) => (
-                              <button
-                                className="agenda-event"
-                                key={e.id}
-                                style={{ borderLeftColor: e.color }}
-                                onClick={() =>
-                                  e.card
-                                    ? setSelected(e.id)
-                                    : setSelectedEvent(
-                                        state.events.find(
-                                          (x) => x.id === e.id,
-                                        ) ?? null,
-                                      )
-                                }
-                              >
-                                <small>
-                                  {clock(e.start)} — {clock(e.end)}
-                                </small>
-                                <b>{e.title}</b>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="today-empty">
-                              <CalendarClock size={26} />
-                              <b>Есть место для важного</b>
-                              <p>Сегодня пока ничего не запланировано.</p>
-                            </div>
-                          )}
-                          <div
-                            className={`today-drop ${dragged ? 'ready' : ''}`}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => scheduleDrop(e, dateKey(), 17)}
-                          >
-                            <CalendarDays size={18} />
-                            <span>
-                              Перетащите дело
-                              <br />
-                              на сегодня, 17:00
-                            </span>
-                          </div>
-                          <button
-                            className="agenda-link"
-                            onClick={() => navigate('calendar')}
-                          >
-                            Открыть календарь
-                            <ArrowRight size={15} />
-                          </button>
-                          {state.reviews.some(
-                            (r) => r.nextDue <= dateKey(),
-                          ) && (
-                            <button
-                              className="review-nudge"
-                              onClick={() => navigate('reviews')}
-                            >
-                              <Repeat2 size={20} />
-                              <b>Время для обзора</b>
-                              <span>
-                                Проверьте, что сейчас важно
-                                <ArrowRight size={14} />
-                              </span>
-                            </button>
-                          )}
-                        </aside>
-                      </details>
-                    </div>
-                  </div>
+                {isDockView && board && (
+                  <DockWorkspace
+                    panels={{
+                      inbox: {
+                        title: `Inbox · ${inbox.length}`,
+                        content: inboxPanel,
+                      },
+                      board: { title: board.title, content: boardPanel },
+                      calendar: { title: 'Календарь', content: calendarPanel },
+                    }}
+                    focus={dockFocus}
+                    onFocus={setView}
+                  />
                 )}
-                {view === 'inbox' &&
-                  (inbox.length ? (
-                    <div className="inbox-list">
-                      <div className="list-heading">
-                        <span>НЕРАЗОБРАННОЕ</span>
-                        <span>{inbox.length}</span>
-                      </div>
-                      {inbox.map((c) => (
-                        <article className="inbox-row" key={c.id}>
-                          <Inbox size={19} />
-                          <button
-                            className="inbox-title"
-                            onClick={() => setSelected(c.id)}
-                          >
-                            <b>{c.title}</b>
-                            <small>
-                              {prettyDate(c.createdAt)}
-                              {c.tags.length
-                                ? ' · ' +
-                                  c.tags
-                                    .map(
-                                      (id) =>
-                                        state.tags.find((t) => t.id === id)
-                                          ?.title,
-                                    )
-                                    .join(', ')
-                                : ''}
-                            </small>
-                          </button>
-                          <button
-                            className="quiet-button"
-                            disabled={pending}
-                            onClick={() =>
-                              void act(
-                                { type: 'move', id: c.id, boardId: 'main' },
-                                'Перемещено на доску',
-                              )
-                            }
-                          >
-                            <PanelsTopLeft size={15} />
-                            На доску
-                          </button>
-                          <button
-                            className="icon-btn"
-                            aria-label={`Разобрать ${c.title}`}
-                            onClick={() => setSelected(c.id)}
-                          >
-                            <ArrowUpRight size={18} />
-                          </button>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      title={
-                        scope !== 'all' || query
-                          ? 'Записей не найдено'
-                          : 'В голове стало свободнее'
-                      }
-                      detail={
-                        scope !== 'all' || query
-                          ? 'Попробуйте другую сферу или поисковый запрос.'
-                          : 'Всё разобрано. Новые мысли можно сразу записывать в поле выше.'
-                      }
-                    />
-                  ))}
                 {view === 'projects' &&
                   (visible.some((c) => c.type === 'project') ? (
                     <div className="project-grid">
@@ -1440,193 +1425,6 @@ export default function Workspace() {
                       detail="У каждого проекта будет собственная доска. Внутри можно создавать задачи и другие проекты."
                     />
                   ))}
-                {view === 'calendar' && (
-                  <>
-                    <div className="calendar-toolbar">
-                      <div>
-                        <button
-                          className="quiet-button"
-                          onClick={() => setDay(dateKey())}
-                        >
-                          Сегодня
-                        </button>
-                        <button
-                          className="icon-btn"
-                          aria-label="Предыдущий период"
-                          onClick={() =>
-                            setDay(
-                              addDays(day, calendarMode === 'day' ? -1 : -7),
-                            )
-                          }
-                        >
-                          <ChevronLeft size={18} />
-                        </button>
-                        <button
-                          className="icon-btn"
-                          aria-label="Следующий период"
-                          onClick={() =>
-                            setDay(addDays(day, calendarMode === 'day' ? 1 : 7))
-                          }
-                        >
-                          <ChevronRight size={18} />
-                        </button>
-                        <b>
-                          {prettyDate(`${days[0]}T12:00:00+03:00`)}
-                          {days.length > 1
-                            ? ' — ' +
-                              prettyDate(`${days.at(-1)}T12:00:00+03:00`)
-                            : ''}
-                        </b>
-                      </div>
-                      <SelectBox
-                        value={calendarMode}
-                        onChange={setCalendarMode}
-                        label="Вид календаря"
-                        options={[
-                          { value: 'day', label: 'День' },
-                          { value: 'week', label: 'Неделя' },
-                        ]}
-                      />
-                    </div>
-                    <div className="calendar-layout">
-                      <div className="calendar-scroll" ref={calendarRef}>
-                        <div
-                          className="calendar-grid"
-                          style={{
-                            gridTemplateColumns: `50px repeat(${days.length}, minmax(${days.length === 1 ? '220' : '105'}px, 1fr))`,
-                          }}
-                        >
-                          <div className="calendar-corner">МСК</div>
-                          {days.map((d) => (
-                            <div
-                              className={`calendar-day-heading ${d === dateKey() ? 'is-today' : ''}`}
-                              key={d}
-                            >
-                              <small>
-                                {new Intl.DateTimeFormat('ru', {
-                                  weekday: 'short',
-                                }).format(new Date(`${d}T12:00:00+03:00`))}
-                              </small>
-                              <b>{Number(d.slice(-2))}</b>
-                            </div>
-                          ))}
-                          <div className="all-day-label">
-                            весь
-                            <br />
-                            день
-                          </div>
-                          {days.map((d) => (
-                            <div key={'all-' + d} className="all-day-cell">
-                              {events
-                                .filter(
-                                  (e) =>
-                                    e.allDay &&
-                                    dateKey(new Date(e.start)) <= d &&
-                                    dateKey(new Date(e.end)) > d,
-                                )
-                                .map((e) => (
-                                  <button
-                                    key={e.id}
-                                    onClick={() => setSelectedEvent(e)}
-                                  >
-                                    {e.title}
-                                  </button>
-                                ))}
-                            </div>
-                          ))}
-                          {Array.from({ length: 24 }, (_, i) => i).map(
-                            (hour) => (
-                              <CalendarRow
-                                key={hour}
-                                hour={hour}
-                                days={days}
-                                scheduled={scheduled}
-                                events={events}
-                                state={state}
-                                scheduleDrop={scheduleDrop}
-                                setSelected={setSelected}
-                                setSelectedEvent={setSelectedEvent}
-                                setDragged={setDragged}
-                              />
-                            ),
-                          )}
-                        </div>
-                      </div>
-                      <aside className="calendar-backlog">
-                        <h2>
-                          <PanelsTopLeft size={16} />
-                          Без времени
-                        </h2>
-                        <p>
-                          Перетащите карточку на нужный час или задайте время в
-                          её деталях.
-                        </p>
-                        {visible
-                          .filter((c) => c.placement === 'board' && !c.done)
-                          .slice(0, 30)
-                          .map((c) => cardTile(c, true))}
-                        {!visible.some(
-                          (c) => c.placement === 'board' && !c.done,
-                        ) && (
-                          <p className="backlog-empty">
-                            Все дела распределены.
-                          </p>
-                        )}
-                        <div
-                          className="return-drop"
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const id = e.dataTransfer.getData('text/life-card');
-                            if (id)
-                              void act(
-                                { type: 'move', id },
-                                'Возвращено на доску',
-                              );
-                            setDragged(null);
-                          }}
-                        >
-                          <PanelsTopLeft size={18} />
-                          Вернуть дело на доску
-                        </div>
-                      </aside>
-                    </div>
-                    <div className="calendar-sources">
-                      <span>Календари:</span>
-                      <span>
-                        <ScopeDot color="#6677dd" />
-                        Мои задачи
-                      </span>
-                      {state.sources.map((s) => (
-                        <label key={s.id} className="checkbox-label">
-                          <Checkbox
-                            checked={s.enabled}
-                            disabled={pending}
-                            onCheckedChange={() =>
-                              void act(
-                                { type: 'source.toggle', id: s.id },
-                                'Видимость изменена',
-                              )
-                            }
-                          />
-                          <ScopeDot color={s.color} />
-                          {s.title}
-                        </label>
-                      ))}
-                      <button
-                        className="text-button"
-                        onClick={() => setImportOpen(true)}
-                      >
-                        <Plus size={14} />
-                        Добавить
-                      </button>
-                    </div>
-                    <p className="muted calendar-hint">
-                      Внешние события доступны для чтения. Повторяющиеся
-                      события: 31 день назад и 12 месяцев вперёд.
-                    </p>
-                  </>
-                )}
                 {view === 'reviews' && (
                   <div className="review-grid">
                     {state.reviews.map((r) => (
@@ -1643,6 +1441,7 @@ export default function Workspace() {
                           setNewForm({
                             kind: 'card',
                             title: `Что сделать: ${title}`,
+                            placement: 'inbox',
                             cardType: 'task',
                           });
                         }}
@@ -1824,7 +1623,7 @@ export default function Workspace() {
                           : 'Переименовать'}
             </DialogTitle>
             <DialogDescription>
-              {view === 'inbox' && newForm?.kind === 'card'
+              {newForm?.placement === 'inbox' && newForm?.kind === 'card'
                 ? 'Просто запишите мысль. Всё остальное можно решить позже.'
                 : 'Дайте понятное название, чтобы легко вернуться к этому позже.'}
             </DialogDescription>
@@ -1843,7 +1642,7 @@ export default function Workspace() {
                 required
               />
             </label>
-            {newForm?.kind === 'card' && view !== 'inbox' && (
+            {newForm?.kind === 'card' && newForm.placement !== 'inbox' && (
               <label>
                 Тип карточки
                 <SelectBox
@@ -1948,7 +1747,17 @@ function CalendarRow({
   setSelected,
   setSelectedEvent,
   setDragged,
+  endDrag,
+  pending,
+  dropTarget,
+  acceptDrop,
+  leaveDrop,
 }: {
+  pending: boolean;
+  dropTarget: string | null;
+  endDrag: () => void;
+  acceptDrop: (e: React.DragEvent, target: string) => void;
+  leaveDrop: (e: React.DragEvent) => void;
   hour: number;
   days: string[];
   scheduled: Card[];
@@ -1992,9 +1801,10 @@ function CalendarRow({
         ].filter((e) => Date.parse(e.start) < end && Date.parse(e.end) > begin);
         return (
           <div
-            className="calendar-cell"
+            className={`calendar-cell ${dropTarget === `calendar:${d}:${hour}` ? 'drop-active' : ''}`}
             key={d}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => acceptDrop(e, `calendar:${d}:${hour}`)}
+            onDragLeave={leaveDrop}
             onDrop={(e) => scheduleDrop(e, d, hour)}
           >
             {all.map((e) => (
@@ -2006,14 +1816,15 @@ function CalendarRow({
                   borderLeftColor: e.color,
                   color: e.color,
                 }}
-                draggable={e.card}
+                draggable={e.card && !pending}
                 onDragStart={(ev) => {
                   if (e.card) {
                     ev.dataTransfer.setData('text/life-card', e.id);
+                    ev.dataTransfer.effectAllowed = 'move';
                     setDragged(e.id);
                   }
                 }}
-                onDragEnd={() => setDragged(null)}
+                onDragEnd={endDrag}
                 onClick={() =>
                   e.card
                     ? setSelected(e.id)
