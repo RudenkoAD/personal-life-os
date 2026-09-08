@@ -50,6 +50,7 @@ export async function loadState(
 }
 export type FeedChange =
   | { kind: 'put'; id: string; url: string }
+  | { kind: 'replace'; id: string; url: string }
   | { kind: 'putCalDav'; id: string; url: string; credentials: string }
   | { kind: 'delete'; id: string };
 export async function saveState(
@@ -68,7 +69,10 @@ export async function saveState(
     commitId = crypto.randomUUID();
   const update = db
     .prepare(
-      'UPDATE workspaces SET revision = ?, data = ?, updated_at = ?, commit_id = ? WHERE owner_id = ? AND revision = ?',
+      'UPDATE workspaces SET revision = ?, data = ?, updated_at = ?, commit_id = ? WHERE owner_id = ? AND revision = ?' +
+        (feed?.kind === 'replace'
+          ? ' AND EXISTS (SELECT 1 FROM feeds WHERE id = ? AND owner_id = ?)'
+          : ''),
     )
     .bind(
       state.revision,
@@ -77,6 +81,7 @@ export async function saveState(
       commitId,
       owner,
       previous,
+      ...(feed?.kind === 'replace' ? [feed.id, owner] : []),
     );
   const statements = [update];
   // The commit marker ties the credential effect to this exact successful CAS.
@@ -88,6 +93,14 @@ export async function saveState(
           'INSERT INTO feeds (id, owner_id, url) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE owner_id = ? AND commit_id = ?)',
         )
         .bind(feed.id, owner, feed.url, owner, commitId),
+    );
+  if (feed?.kind === 'replace')
+    statements.push(
+      db
+        .prepare(
+          'UPDATE feeds SET url = ? WHERE id = ? AND owner_id = ? AND EXISTS (SELECT 1 FROM workspaces WHERE owner_id = ? AND commit_id = ?)',
+        )
+        .bind(feed.url, feed.id, owner, owner, commitId),
     );
   if (feed?.kind === 'putCalDav')
     statements.push(

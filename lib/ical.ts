@@ -156,29 +156,65 @@ export function validateFeedUrl(input: string): string {
   return url.href;
 }
 export async function fetchCalendar(url: string) {
-  const response = await fetch(validateFeedUrl(url), {
-    redirect: 'error',
-    signal: AbortSignal.timeout(15000),
-    headers: { Accept: 'text/calendar' },
-  });
-  if (!response.ok)
-    throw new DomainError(
-      'Источник не отдал календарь. Проверьте ссылку и права доступа.',
-    );
-  const reader = response.body?.getReader();
-  if (!reader) throw new DomainError('Пустой ответ календаря');
-  const decoder = new TextDecoder();
-  let result = '';
-  let bytes = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    bytes += value.length;
-    if (bytes > 1000000) {
-      await reader.cancel();
-      throw new DomainError('Размер календаря больше 1 МБ');
+  // Keep signed path/query components intact; credentials belong to this URL only.
+  const validated = validateFeedUrl(url);
+  let response: Response | undefined;
+  try {
+    response = await fetch(validated, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'text/calendar' },
+    });
+    if (response.status === 401 || response.status === 403)
+      throw new DomainError(
+        'Нет доступа к ICS. Скопируйте полную приватную ссылку с токеном или обновите её у источника.',
+      );
+    if (response.status >= 300 && response.status < 400)
+      throw new DomainError(
+        'Ссылка перенаправляет на другую страницу. Нужна прямая ICS-ссылка с токеном, без входа в браузере.',
+      );
+    if (!response.ok)
+      throw new DomainError(
+        'Источник не отдал календарь. Проверьте полную ICS-ссылку и её срок действия.',
+      );
+    const contentType =
+      response.headers.get('content-type')?.toLowerCase() ?? '';
+    const loginPage = () =>
+      new DomainError(
+        'Вместо ICS получена страница сайта. Скопируйте приватную ссылку на календарь вместе с токеном.',
+      );
+    if (
+      contentType.includes('text/html') ||
+      contentType.includes('application/xhtml+xml')
+    )
+      throw loginPage();
+    const reader = response.body?.getReader();
+    if (!reader) throw new DomainError('Пустой ответ календаря');
+    const decoder = new TextDecoder();
+    let result = '',
+      bytes = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.length;
+        if (bytes > 1000000)
+          throw new DomainError('Размер календаря больше 1 МБ');
+        result += decoder.decode(value, { stream: true });
+        if (/^\s*<(?:!doctype\s+html|html|head|body)\b/i.test(result))
+          throw loginPage();
+      }
+      return result + decoder.decode();
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
     }
-    result += decoder.decode(value, { stream: true });
+  } catch (error) {
+    await response?.body?.cancel().catch(() => {});
+    if (error instanceof DomainError) throw error;
+    // Network, redirect and stream errors can contain the secret URL. Never return them.
+    throw new DomainError(
+      'Не удалось загрузить ICS. Проверьте полную ссылку с токеном и попробуйте ещё раз.',
+    );
   }
-  return result + decoder.decode();
 }

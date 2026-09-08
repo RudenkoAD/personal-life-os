@@ -54,6 +54,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { ScopesSettings } from '@/components/scopes-settings';
+import { ICSLinkField, ReplaceICSLink } from '@/components/ics-feed-link';
 import { RecurringHub } from '@/components/recurring-hub';
 import {
   CalendarEventEditor,
@@ -1709,6 +1710,20 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                                   <RefreshCw size={17} />
                                 </button>
                               )}
+                              {s.kind === 'feed' && (
+                                <ReplaceICSLink
+                                  title={s.title}
+                                  pending={sync.calendarPending}
+                                  serverError={failure}
+                                  submit={(url) =>
+                                    request(
+                                      '/api/calendars',
+                                      { sourceId: s.id, url },
+                                      'ICS-ссылка обновлена',
+                                    )
+                                  }
+                                />
+                              )}
                               <RemoveSource
                                 pending={pending}
                                 title={s.title}
@@ -2544,21 +2559,7 @@ function ImportCalendar({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="feed">
-              <label className="form-field">
-                Секретная ссылка ICS
-                <input
-                  type="url"
-                  autoComplete="off"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://…"
-                  required={mode === 'feed'}
-                />
-              </label>
-              <p className="setting-footnote">
-                Google, Яндекс, Outlook и DataSchool. Ссылка сохраняется только
-                на сервере и не передаётся агенту.
-              </p>
+              <ICSLinkField value={url} onChange={setUrl} disabled={pending} />
             </TabsContent>
             <TabsContent value="caldav">
               <div className="form-stack">

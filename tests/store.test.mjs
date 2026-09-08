@@ -195,3 +195,63 @@ test('mutation receipts are owner scoped and atomic with state and credential de
   );
   assert.ok(await mutationReceipt(owner, removeId));
 });
+
+test('ICS token replacement requires an owned feed and rolls back on failed receipt', async () => {
+  const owner = 'replace-feed-owner',
+    other = 'replace-feed-other',
+    id = 'replace-feed-id';
+  const before = await loadState(owner);
+  const created = applyAction(before, { type: 'capture', title: 'fixture' });
+  const oldUrl =
+    'https://lk.dataschool.yandex.ru/users/old-fixture/classes.ics';
+  const newUrl =
+    'https://lk.dataschool.yandex.ru/users/new-fixture/classes.ics';
+  await saveState(
+    owner,
+    before.revision,
+    created,
+    { kind: 'put', id, url: oldUrl },
+    { id: 'replace-receipt', hash: 'original' },
+  );
+  const next = applyAction(created, { type: 'capture', title: 'replacement' });
+  const stored = () =>
+    rawDb().prepare('SELECT url FROM feeds WHERE id = ?').bind(id).first();
+  await assert.rejects(
+    saveState(owner, created.revision, next, {
+      kind: 'replace',
+      id: 'missing-feed',
+      url: newUrl,
+    }),
+    (e) => e.status === 409,
+  );
+  assert.deepEqual(await loadState(owner), created);
+  const otherBefore = await loadState(other);
+  await assert.rejects(
+    saveState(
+      other,
+      otherBefore.revision,
+      applyAction(otherBefore, { type: 'capture', title: 'other' }),
+      { kind: 'replace', id, url: newUrl },
+    ),
+    (e) => e.status === 409,
+  );
+  assert.deepEqual(await loadState(other), otherBefore);
+  assert.equal((await stored()).url, oldUrl);
+  await assert.rejects(
+    saveState(
+      owner,
+      created.revision,
+      next,
+      { kind: 'replace', id, url: newUrl },
+      { id: 'replace-receipt', hash: 'duplicate' },
+    ),
+  );
+  assert.equal((await stored()).url, oldUrl);
+  assert.deepEqual(await loadState(owner), created);
+  await saveState(owner, created.revision, next, {
+    kind: 'replace',
+    id,
+    url: newUrl,
+  });
+  assert.equal((await stored()).url, newUrl);
+});

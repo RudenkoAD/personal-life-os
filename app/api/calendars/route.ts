@@ -66,6 +66,11 @@ export async function POST(request: Request) {
     if (a.sourceId) {
       source = state.sources.find((s) => s.id === a.sourceId)!;
       if (!source) return json({ error: 'Календарь не найден' }, 404);
+      if (a.url !== undefined && source.kind !== 'feed')
+        return json(
+          { error: 'Заменить ссылку можно только у подписки ICS' },
+          400,
+        );
       if (source.kind === 'caldav') {
         const config = caldavConfig();
         const connection = await rawDb()
@@ -94,7 +99,13 @@ export async function POST(request: Request) {
           .first<{ url: string }>();
         if (!feed)
           return json({ error: 'Для файла загрузите новую версию ICS' }, 400);
-        events = parseCalendar(await fetchCalendar(feed.url), source.id);
+        const url =
+          a.url === undefined
+            ? feed.url
+            : validateFeedUrl(textValue(a.url, 'Ссылка ICS', 4000));
+        events = parseCalendar(await fetchCalendar(url), source.id);
+        if (a.url !== undefined)
+          change = { kind: 'replace', id: source.id, url };
       }
     } else {
       if (state.sources.length >= 20)
