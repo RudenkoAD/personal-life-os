@@ -265,6 +265,9 @@ export function applyAction(
           fail('Сначала удалите шаги');
         c.type = a.cardType;
         if (c.type === 'project') {
+          if (c.placement === 'calendar') c.placement = 'board';
+          delete c.start;
+          delete c.end;
           c.childBoardId = id();
           s.boards.push({
             id: c.childBoardId,
@@ -301,6 +304,8 @@ export function applyAction(
     }
     case 'schedule': {
       const c = cardOf(s, a.id);
+      if (c.type === 'project')
+        fail('Планируйте задачи внутри проекта, а не сам проект');
       const start = strictInstant(a.start);
       const end = strictInstant(a.end);
       if (

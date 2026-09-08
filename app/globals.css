@@ -1926,7 +1926,7 @@ p {
   color: #7e8fa9;
   margin: 16px 0;
 }
-.step-row > span {
+.step-row > .step-title {
   flex: 1;
   overflow-wrap: anywhere;
 }
@@ -3263,5 +3263,67 @@ p {
   }
   .dock-panel-body .inbox-return-hint {
     display: flex;
+  }
+}
+
+/* The drawer overlays the workspace without resizing dock panels. */
+.navigation-drawer {
+  width: 292px !important;
+  max-width: calc(100vw - 32px) !important;
+  padding: 0;
+  gap: 0;
+  background: #161d31;
+  color: #c6cee0;
+}
+.navigation-drawer .life-sidebar {
+  width: 100%;
+  min-height: 0;
+  background: #161d31;
+}
+.navigation-drawer .brand {
+  padding-top: 48px;
+}
+.navigation-drawer > .navigation-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: #c6cee0;
+}
+.navigation-drawer > [data-slot='sheet-close']:hover {
+  background: #303d64;
+}
+.navigation-drawer [data-slot='sidebar-content'] {
+  min-height: 0;
+}
+.navigation-trigger {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 7px;
+  color: #596b8b;
+  font-size: 14px;
+  padding: 7px 9px;
+  border: 1px solid #e0e5ef;
+  border-radius: 7px;
+}
+.navigation-trigger:hover {
+  background: #edf1fa;
+}
+.step-row > [data-slot='checkbox'] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+.step-row > .step-title {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .navigation-trigger span {
+    display: none;
   }
 }

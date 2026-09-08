@@ -2,6 +2,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type FormEvent,
@@ -16,7 +17,6 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarInset,
-  SidebarTrigger,
 } from '@/components/ui/sidebar';
 import {
   Dialog,
@@ -27,6 +27,8 @@ import {
 } from '@/components/ui/dialog';
 import {
   Sheet,
+  SheetTrigger,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -64,6 +66,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  Save,
+  Menu,
   Inbox,
   PanelsTopLeft,
   CalendarDays,
@@ -218,6 +222,7 @@ function EmptyState({
 export default function Workspace() {
   const [state, setState] = useState<LifeState | null>(null),
     stateRef = useRef<LifeState | null>(null);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [view, setView] = useState<View>('board'),
     [boardId, setBoardId] = useState('main'),
     [scope, setScope] = useState('all'),
@@ -358,6 +363,7 @@ export default function Workspace() {
   }, [request]);
   const navigate = (next: View, id?: string) => {
     setView(next);
+    setNavigationOpen(false);
     if (next === 'inbox' || next === 'board' || next === 'calendar')
       setDockFocus((f) => ({ panel: next, request: f.request + 1 }));
     if (id) setBoardId(id);
@@ -454,6 +460,13 @@ export default function Workspace() {
   };
   const acceptDrop = (e: React.DragEvent, target: string) => {
     if (pending || !e.dataTransfer.types.includes('text/life-card')) return;
+    if (
+      target.startsWith('calendar:') &&
+      state?.cards.some((c) => c.id === dragged && c.type === 'project')
+    ) {
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDropTarget(target);
@@ -478,6 +491,7 @@ export default function Workspace() {
     endDrag();
     if (!id || pending) return;
     const c = state?.cards.find((c) => c.id === id);
+    if (!c || c.type === 'project') return;
     const start = new Date(
       `${date}T${String(hour).padStart(2, '0')}:00:00+03:00`,
     );
@@ -611,9 +625,7 @@ export default function Workspace() {
     </article>
   );
   const navItems: [View, string, typeof Inbox][] = [
-    ['inbox', 'Входящие', Inbox],
-    ['board', 'Моя доска', PanelsTopLeft],
-    ['calendar', 'Календарь', CalendarDays],
+    ['board', 'Рабочее пространство', PanelsTopLeft],
     ['projects', 'Проекты', Layers],
     ['reviews', 'Обзоры', Repeat2],
   ];
@@ -1009,596 +1021,630 @@ export default function Workspace() {
   ) : null;
   return (
     <SidebarProvider
+      open={navigationOpen}
+      onOpenChange={setNavigationOpen}
       style={{ '--sidebar-width': '238px' } as React.CSSProperties}
     >
-      <Sidebar className="life-sidebar">
-        <SidebarHeader>
-          <div className="brand">
-            <Orbit />
-            <b>
-              life<span>os</span>
-            </b>
-            <span className="brand-badge">ЛИЧНОЕ</span>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <p className="nav-label">ПРОСТРАНСТВО</p>
-          <SidebarMenu className="nav-menu">
-            {navItems.map(([v, label, Icon]) => (
-              <SidebarMenuItem key={v}>
-                <SidebarMenuButton
-                  isActive={view === v}
-                  onClick={() =>
-                    navigate(v, v === 'board' ? 'main' : undefined)
-                  }
+      <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}>
+        <SheetContent
+          side="left"
+          className="navigation-drawer"
+          showCloseButton={false}
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>Меню пространства</SheetTitle>
+            <SheetDescription>
+              Рабочее пространство, проекты, обзоры и настройки.
+            </SheetDescription>
+          </SheetHeader>
+          <SheetClose className="navigation-close" aria-label="Закрыть меню">
+            <X size={19} />
+          </SheetClose>
+          <Sidebar className="life-sidebar" collapsible="none">
+            <SidebarHeader>
+              <div className="brand">
+                <Orbit />
+                <b>
+                  life<span>os</span>
+                </b>
+                <span className="brand-badge">ЛИЧНОЕ</span>
+              </div>
+            </SidebarHeader>
+            <SidebarContent>
+              <p className="nav-label">ПРОСТРАНСТВО</p>
+              <SidebarMenu className="nav-menu">
+                {navItems.map(([v, label, Icon]) => (
+                  <SidebarMenuItem key={v}>
+                    <SidebarMenuButton
+                      isActive={v === 'board' ? isDockView : view === v}
+                      onClick={() => navigate(v)}
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+              <div className="nav-section-head">
+                <p className="nav-label">МОИ ДОСКИ</p>
+                <button
+                  aria-label="Создать доску"
+                  onClick={() => {
+                    setNavigationOpen(false);
+                    setNewForm({ kind: 'board', title: '' });
+                  }}
                 >
-                  <Icon />
-                  <span>{label}</span>
-                  {v === 'inbox' &&
-                    !!state?.cards.filter((c) => c.placement === 'inbox')
-                      .length && (
-                      <span className="nav-count">
-                        {
-                          state.cards.filter((c) => c.placement === 'inbox')
-                            .length
-                        }
-                      </span>
-                    )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-          <div className="nav-section-head">
-            <p className="nav-label">МОИ ДОСКИ</p>
-            <button
-              aria-label="Создать доску"
-              onClick={() => setNewForm({ kind: 'board', title: '' })}
-            >
-              <Plus size={15} />
-            </button>
-          </div>
-          <SidebarMenu className="nav-menu">
-            {state?.boards
-              .filter((b) => b.id !== 'main' && !b.parentCardId)
-              .map((b) => (
-                <SidebarMenuItem key={b.id}>
-                  <SidebarMenuButton
-                    isActive={view === 'board' && boardId === b.id}
-                    onClick={() => navigate('board', b.id)}
+                  <Plus size={15} />
+                </button>
+              </div>
+              <SidebarMenu className="nav-menu">
+                {state?.boards
+                  .filter((b) => b.id !== 'main' && !b.parentCardId)
+                  .map((b) => (
+                    <SidebarMenuItem key={b.id}>
+                      <SidebarMenuButton
+                        isActive={view === 'board' && boardId === b.id}
+                        onClick={() => navigate('board', b.id)}
+                      >
+                        <PanelsTopLeft />
+                        <span>{b.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                {!state?.boards.some(
+                  (b) => b.id !== 'main' && !b.parentCardId,
+                ) && (
+                  <p className="nav-hint">
+                    Отдельная доска для любого направления.
+                  </p>
+                )}
+              </SidebarMenu>
+              <div className="nav-section-head">
+                <p className="nav-label">СФЕРЫ ЖИЗНИ</p>
+                <button
+                  aria-label="Добавить тег"
+                  onClick={() => {
+                    setNavigationOpen(false);
+                    setNewForm({ kind: 'tag', title: '' });
+                  }}
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+              <div className="scope-nav">
+                <button
+                  className={scope === 'all' ? 'active' : ''}
+                  onClick={() => {
+                    setScope('all');
+                    setNavigationOpen(false);
+                  }}
+                >
+                  <span className="all-scopes" />
+                  Все сферы
+                </button>
+                {state?.tags.map((t) => (
+                  <button
+                    key={t.id}
+                    className={scope === t.id ? 'active' : ''}
+                    onClick={() => {
+                      setScope(t.id);
+                      setNavigationOpen(false);
+                    }}
                   >
-                    <PanelsTopLeft />
-                    <span>{b.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            {!state?.boards.some((b) => b.id !== 'main' && !b.parentCardId) && (
-              <p className="nav-hint">
-                Отдельная доска для любого направления.
-              </p>
-            )}
-          </SidebarMenu>
-          <div className="nav-section-head">
-            <p className="nav-label">СФЕРЫ ЖИЗНИ</p>
-            <button
-              aria-label="Добавить тег"
-              onClick={() => setNewForm({ kind: 'tag', title: '' })}
-            >
-              <Plus size={15} />
-            </button>
-          </div>
-          <div className="scope-nav">
-            <button
-              className={scope === 'all' ? 'active' : ''}
-              onClick={() => setScope('all')}
-            >
-              <span className="all-scopes" />
-              Все сферы
-            </button>
-            {state?.tags.map((t) => (
+                    <ScopeDot color={t.color} />
+                    {t.title}
+                  </button>
+                ))}
+              </div>
+              <div className="sidebar-note">
+                <Orbit size={21} />
+                <p>
+                  Всё важное —<br />в одном пространстве.
+                </p>
+              </div>
+            </SidebarContent>
+            <SidebarFooter>
               <button
-                key={t.id}
-                className={scope === t.id ? 'active' : ''}
-                onClick={() => setScope(t.id)}
+                className={`footer-nav ${view === 'agent' ? 'active' : ''}`}
+                onClick={() => navigate('agent')}
               >
-                <ScopeDot color={t.color} />
-                {t.title}
+                <Bot size={18} /> Агент и MCP <ArrowUpRight size={14} />
               </button>
-            ))}
-          </div>
-          <div className="sidebar-note">
-            <Orbit size={21} />
-            <p>
-              Всё важное —<br />в одном пространстве.
-            </p>
-          </div>
-        </SidebarContent>
-        <SidebarFooter>
-          <button
-            className={`footer-nav ${view === 'agent' ? 'active' : ''}`}
-            onClick={() => navigate('agent')}
-          >
-            <Bot size={18} /> Агент и MCP <ArrowUpRight size={14} />
-          </button>
-          <button
-            className={`footer-nav ${view === 'settings' ? 'active' : ''}`}
-            onClick={() => navigate('settings')}
-          >
-            <Settings2 size={18} /> Настройки
-          </button>
-          <div className="profile">
-            <div className="avatar">Я</div>
-            <div>
-              <b>Моё пространство</b>
-              <small>
-                <span /> Только для меня
-              </small>
-            </div>
-          </div>
-        </SidebarFooter>
-      </Sidebar>
-      <SidebarInset className="app-inset">
-        <header className="topbar">
-          <SidebarTrigger />
-          <span>Моё пространство</span>
-          <ChevronRight size={14} />
-          <b>{view === 'board' ? 'Доски' : titles[view]}</b>
-          <div className="topbar-right">
-            <span className="save-indicator">
-              <span />
-              {pending ? 'Сохраняем…' : 'Личное пространство'}
-            </span>
-            <button
-              className="icon-btn"
-              aria-label="Быстрый захват"
-              onClick={() => captureRef.current?.focus()}
-            >
-              <Plus size={19} />
-            </button>
-          </div>
-        </header>
-        <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
-          <div className="heading-kicker">
-            <span className="eyebrow">
-              {view === 'board'
-                ? 'ДЕЛА В СВОЁМ ТЕМПЕ'
-                : view === 'inbox'
-                  ? 'СНАЧАЛА ЗАПИСАТЬ, ПОТОМ РАЗОБРАТЬ'
-                  : view === 'calendar'
-                    ? 'МЕСТО ДЛЯ ВАШЕГО ВРЕМЕНИ'
-                    : view === 'reviews'
-                      ? 'ПОСМОТРЕТЬ НА ЖИЗНЬ ЦЕЛИКОМ'
-                      : 'ЛИЧНОЕ ПРОСТРАНСТВО'}
-            </span>
-            <span className="current-date">
-              {prettyDate(new Date().toISOString())}
-            </span>
-          </div>
-          <div className="page-title">
-            <div>
-              <h1>{isDockView ? 'Моё пространство' : titles[view]}</h1>
-              <p className="page-subtitle">
-                {isDockView
-                  ? 'Записать, разобрать, запланировать — всё перед глазами.'
-                  : view === 'projects'
-                    ? 'Большие замыслы начинаются с небольших шагов.'
-                    : view === 'reviews'
-                      ? 'Постоянные списки помогают помнить о важных сферах.'
-                      : view === 'agent'
-                        ? 'Доступ к вашим задачам через общие правила приложения.'
-                        : 'Внешние события рядом с вашими планами.'}
-              </p>
-            </div>
-            {['board', 'inbox', 'projects'].includes(view) && (
               <button
-                className="primary"
-                disabled={!state}
-                onClick={() =>
-                  view === 'projects'
-                    ? setNewForm({
-                        kind: 'card',
-                        title: '',
-                        cardType: 'project',
-                      })
-                    : view === 'inbox'
+                className={`footer-nav ${view === 'settings' ? 'active' : ''}`}
+                onClick={() => navigate('settings')}
+              >
+                <Settings2 size={18} /> Настройки
+              </button>
+              <div className="profile">
+                <div className="avatar">Я</div>
+                <div>
+                  <b>Моё пространство</b>
+                  <small>
+                    <span /> Только для меня
+                  </small>
+                </div>
+              </div>
+            </SidebarFooter>
+          </Sidebar>
+        </SheetContent>
+        <SidebarInset className="app-inset">
+          <header className="topbar">
+            <SheetTrigger
+              className="navigation-trigger"
+              aria-label="Открыть меню"
+            >
+              <Menu size={19} />
+              <span>Меню</span>
+            </SheetTrigger>
+            <span>Моё пространство</span>
+            <ChevronRight size={14} />
+            <b>{view === 'board' ? 'Доски' : titles[view]}</b>
+            <div className="topbar-right">
+              <span className="save-indicator">
+                <span />
+                {pending ? 'Сохраняем…' : 'Личное пространство'}
+              </span>
+              <button
+                className="icon-btn"
+                aria-label="Быстрый захват"
+                onClick={() => captureRef.current?.focus()}
+              >
+                <Plus size={19} />
+              </button>
+            </div>
+          </header>
+          <main className={`workspace ${isDockView ? 'dock-page' : ''}`}>
+            <div className="heading-kicker">
+              <span className="eyebrow">
+                {view === 'board'
+                  ? 'ДЕЛА В СВОЁМ ТЕМПЕ'
+                  : view === 'inbox'
+                    ? 'СНАЧАЛА ЗАПИСАТЬ, ПОТОМ РАЗОБРАТЬ'
+                    : view === 'calendar'
+                      ? 'МЕСТО ДЛЯ ВАШЕГО ВРЕМЕНИ'
+                      : view === 'reviews'
+                        ? 'ПОСМОТРЕТЬ НА ЖИЗНЬ ЦЕЛИКОМ'
+                        : 'ЛИЧНОЕ ПРОСТРАНСТВО'}
+              </span>
+              <span className="current-date">
+                {prettyDate(new Date().toISOString())}
+              </span>
+            </div>
+            <div className="page-title">
+              <div>
+                <h1>{isDockView ? 'Моё пространство' : titles[view]}</h1>
+                <p className="page-subtitle">
+                  {isDockView
+                    ? 'Записать, разобрать, запланировать — всё перед глазами.'
+                    : view === 'projects'
+                      ? 'Большие замыслы начинаются с небольших шагов.'
+                      : view === 'reviews'
+                        ? 'Постоянные списки помогают помнить о важных сферах.'
+                        : view === 'agent'
+                          ? 'Доступ к вашим задачам через общие правила приложения.'
+                          : 'Внешние события рядом с вашими планами.'}
+                </p>
+              </div>
+              {['board', 'inbox', 'projects'].includes(view) && (
+                <button
+                  className="primary"
+                  disabled={!state}
+                  onClick={() =>
+                    view === 'projects'
                       ? setNewForm({
                           kind: 'card',
                           title: '',
-                          placement: 'inbox',
+                          cardType: 'project',
                         })
-                      : openNew()
-                }
-              >
-                <Plus size={17} />
-                {view === 'projects' ? 'Новый проект' : 'Новая карточка'}
-              </button>
-            )}
-            {view === 'reviews' && (
+                      : view === 'inbox'
+                        ? setNewForm({
+                            kind: 'card',
+                            title: '',
+                            placement: 'inbox',
+                          })
+                        : openNew()
+                  }
+                >
+                  <Plus size={17} />
+                  {view === 'projects' ? 'Новый проект' : 'Новая карточка'}
+                </button>
+              )}
+              {view === 'reviews' && (
+                <button
+                  className="primary"
+                  onClick={() => setNewForm({ kind: 'review', title: '' })}
+                >
+                  <Plus size={17} />
+                  Новый список
+                </button>
+              )}
+              {view === 'settings' && (
+                <button className="primary" onClick={() => setImportOpen(true)}>
+                  <Plus size={17} />
+                  Добавить календарь
+                </button>
+              )}
+            </div>
+            <form className="capture" onSubmit={submitCapture}>
+              <span className="capture-icon">
+                <Plus size={19} />
+              </span>
+              <input
+                ref={captureRef}
+                autoFocus={mobileCapture}
+                aria-label="Быстрый захват во входящие"
+                placeholder="Что нужно сделать? Запишите, разберётесь позже…"
+                value={capture}
+                maxLength={200}
+                onChange={(e) => setCapture(e.target.value)}
+                disabled={!state}
+              />
+              <kbd>⌘ K</kbd>
               <button
-                className="primary"
-                onClick={() => setNewForm({ kind: 'review', title: '' })}
+                className="capture-submit"
+                type="submit"
+                disabled={pending || !capture.trim() || !state}
+                aria-label="Отправить во входящие"
               >
-                <Plus size={17} />
-                Новый список
+                <CornerDownLeft size={19} />
               </button>
+            </form>
+            {failure && (
+              <div className="error-banner" role="alert">
+                <span>{failure}</span>
+                <button
+                  aria-label="Закрыть ошибку"
+                  onClick={() => setFailure('')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
             )}
-            {view === 'settings' && (
-              <button className="primary" onClick={() => setImportOpen(true)}>
-                <Plus size={17} />
-                Добавить календарь
-              </button>
+            {notice && (
+              <div className="notice" role="status">
+                <CheckCheck size={17} />
+                {notice}
+              </div>
             )}
-          </div>
-          <form className="capture" onSubmit={submitCapture}>
-            <span className="capture-icon">
-              <Plus size={19} />
-            </span>
-            <input
-              ref={captureRef}
-              autoFocus={mobileCapture}
-              aria-label="Быстрый захват во входящие"
-              placeholder="Что нужно сделать? Запишите, разберётесь позже…"
-              value={capture}
-              maxLength={200}
-              onChange={(e) => setCapture(e.target.value)}
-              disabled={!state}
-            />
-            <kbd>⌘ K</kbd>
-            <button
-              className="capture-submit"
-              type="submit"
-              disabled={pending || !capture.trim() || !state}
-              aria-label="Отправить во входящие"
-            >
-              <CornerDownLeft size={19} />
-            </button>
-          </form>
-          {failure && (
-            <div className="error-banner" role="alert">
-              <span>{failure}</span>
-              <button
-                aria-label="Закрыть ошибку"
-                onClick={() => setFailure('')}
+            {loading ? (
+              <div className="loading-grid">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton className="h-56 rounded-xl" key={i} />
+                ))}
+              </div>
+            ) : loadError ? (
+              <EmptyState
+                title="Не удалось открыть пространство"
+                detail={loadError}
               >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          {notice && (
-            <div className="notice" role="status">
-              <CheckCheck size={17} />
-              {notice}
-            </div>
-          )}
-          {loading ? (
-            <div className="loading-grid">
-              {[1, 2, 3].map((i) => (
-                <Skeleton className="h-56 rounded-xl" key={i} />
-              ))}
-            </div>
-          ) : loadError ? (
-            <EmptyState
-              title="Не удалось открыть пространство"
-              detail={loadError}
-            >
-              <button className="primary" onClick={() => void reload()}>
-                Повторить
-              </button>
-              <a
-                className="quiet-button"
-                href="/signin-with-chatgpt?return_to=%2F"
-                target="_top"
-              >
-                Войти
-              </a>
-            </EmptyState>
-          ) : (
-            state && (
-              <>
-                {['board', 'inbox', 'calendar', 'projects'].includes(view) && (
-                  <div className="filterbar">
-                    <div className="filter-left">
-                      <SelectBox
-                        value={scope}
-                        onChange={setScope}
-                        label="Фильтр по сфере"
-                        options={[
-                          { value: 'all', label: 'Все сферы' },
-                          ...state.tags.map((t) => ({
-                            value: t.id,
-                            label: t.title,
-                          })),
-                        ]}
-                      />
-                      <span className="filter-divider" />
-                      <label className="search-box">
-                        <Search size={16} />
-                        <input
-                          aria-label="Поиск карточек и событий"
-                          placeholder="Найти…"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
+                <button className="primary" onClick={() => void reload()}>
+                  Повторить
+                </button>
+                <a
+                  className="quiet-button"
+                  href="/signin-with-chatgpt?return_to=%2F"
+                  target="_top"
+                >
+                  Войти
+                </a>
+              </EmptyState>
+            ) : (
+              state && (
+                <>
+                  {['board', 'inbox', 'calendar', 'projects'].includes(
+                    view,
+                  ) && (
+                    <div className="filterbar">
+                      <div className="filter-left">
+                        <SelectBox
+                          value={scope}
+                          onChange={setScope}
+                          label="Фильтр по сфере"
+                          options={[
+                            { value: 'all', label: 'Все сферы' },
+                            ...state.tags.map((t) => ({
+                              value: t.id,
+                              label: t.title,
+                            })),
+                          ]}
                         />
-                        {query && (
-                          <button
-                            aria-label="Очистить поиск"
-                            onClick={() => setQuery('')}
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
+                        <span className="filter-divider" />
+                        <label className="search-box">
+                          <Search size={16} />
+                          <input
+                            aria-label="Поиск карточек и событий"
+                            placeholder="Найти…"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                          />
+                          {query && (
+                            <button
+                              aria-label="Очистить поиск"
+                              onClick={() => setQuery('')}
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </label>
+                      </div>
+                      <label className="checkbox-label">
+                        <Checkbox
+                          checked={showDone}
+                          onCheckedChange={(v) => setShowDone(v === true)}
+                        />
+                        Показывать готовые
                       </label>
                     </div>
-                    <label className="checkbox-label">
-                      <Checkbox
-                        checked={showDone}
-                        onCheckedChange={(v) => setShowDone(v === true)}
-                      />
-                      Показывать готовые
-                    </label>
-                  </div>
-                )}
-                {isDockView && board && (
-                  <DockWorkspace
-                    panels={{
-                      inbox: {
-                        title: `Inbox · ${inbox.length}`,
-                        content: inboxPanel,
-                      },
-                      board: { title: board.title, content: boardPanel },
-                      calendar: { title: 'Календарь', content: calendarPanel },
-                    }}
-                    focus={dockFocus}
-                    onFocus={setView}
-                  />
-                )}
-                {view === 'projects' &&
-                  (visible.some((c) => c.type === 'project') ? (
-                    <div className="project-grid">
-                      {visible
-                        .filter((c) => c.type === 'project')
-                        .map((c) => (
-                          <section className="project-card" key={c.id}>
-                            <div className="project-card-head">
-                              <span className="project-icon">
-                                <FolderOpen size={23} />
-                              </span>
-                              <button
-                                className="icon-btn"
-                                aria-label={`Детали проекта ${c.title}`}
-                                onClick={() => setSelected(c.id)}
-                              >
-                                <Settings2 size={17} />
-                              </button>
-                            </div>
-                            <button
-                              className="project-name"
-                              onClick={() => navigate('board', c.childBoardId)}
-                            >
-                              {c.title}
-                              <ArrowUpRight size={18} />
-                            </button>
-                            <p>
-                              {c.notes ||
-                                'Собственная доска для задач и следующих шагов.'}
-                            </p>
-                            <div className="project-progress">
-                              <Progress
-                                value={
-                                  state.cards.filter(
-                                    (x) => x.boardId === c.childBoardId,
-                                  ).length
-                                    ? (state.cards.filter(
-                                        (x) =>
-                                          x.boardId === c.childBoardId &&
-                                          x.done,
-                                      ).length /
-                                        state.cards.filter(
-                                          (x) => x.boardId === c.childBoardId,
-                                        ).length) *
-                                      100
-                                    : 0
-                                }
-                              />
-                              <span>
-                                {
-                                  state.cards.filter(
-                                    (x) =>
-                                      x.boardId === c.childBoardId && x.done,
-                                  ).length
-                                }{' '}
-                                /{' '}
-                                {
-                                  state.cards.filter(
-                                    (x) => x.boardId === c.childBoardId,
-                                  ).length
-                                }{' '}
-                                готово
-                              </span>
-                            </div>
-                          </section>
-                        ))}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      icon={Layers}
-                      title="Дайте замыслу своё пространство"
-                      detail="У каждого проекта будет собственная доска. Внутри можно создавать задачи и другие проекты."
+                  )}
+                  {isDockView && board && (
+                    <DockWorkspace
+                      panels={{
+                        inbox: {
+                          title: `Inbox · ${inbox.length}`,
+                          content: inboxPanel,
+                        },
+                        board: { title: board.title, content: boardPanel },
+                        calendar: {
+                          title: 'Календарь',
+                          content: calendarPanel,
+                        },
+                      }}
+                      focus={dockFocus}
+                      onFocus={setView}
                     />
-                  ))}
-                {view === 'reviews' && (
-                  <div className="review-grid">
-                    {state.reviews.map((r) => (
-                      <ReviewPanel
-                        key={r.id}
-                        review={r}
-                        pending={pending}
-                        act={act}
-                        addPrompt={() =>
-                          setNewForm({ kind: 'prompt', title: '', id: r.id })
-                        }
-                        capturePrompt={(title) => {
-                          navigate('inbox');
-                          setNewForm({
-                            kind: 'card',
-                            title: `Что сделать: ${title}`,
-                            placement: 'inbox',
-                            cardType: 'task',
-                          });
-                        }}
+                  )}
+                  {view === 'projects' &&
+                    (visible.some((c) => c.type === 'project') ? (
+                      <div className="project-grid">
+                        {visible
+                          .filter((c) => c.type === 'project')
+                          .map((c) => (
+                            <section className="project-card" key={c.id}>
+                              <div className="project-card-head">
+                                <span className="project-icon">
+                                  <FolderOpen size={23} />
+                                </span>
+                                <button
+                                  className="icon-btn"
+                                  aria-label={`Детали проекта ${c.title}`}
+                                  onClick={() => setSelected(c.id)}
+                                >
+                                  <Settings2 size={17} />
+                                </button>
+                              </div>
+                              <button
+                                className="project-name"
+                                onClick={() =>
+                                  navigate('board', c.childBoardId)
+                                }
+                              >
+                                {c.title}
+                                <ArrowUpRight size={18} />
+                              </button>
+                              <p>
+                                {c.notes ||
+                                  'Собственная доска для задач и следующих шагов.'}
+                              </p>
+                              <div className="project-progress">
+                                <Progress
+                                  value={
+                                    state.cards.filter(
+                                      (x) => x.boardId === c.childBoardId,
+                                    ).length
+                                      ? (state.cards.filter(
+                                          (x) =>
+                                            x.boardId === c.childBoardId &&
+                                            x.done,
+                                        ).length /
+                                          state.cards.filter(
+                                            (x) => x.boardId === c.childBoardId,
+                                          ).length) *
+                                        100
+                                      : 0
+                                  }
+                                />
+                                <span>
+                                  {
+                                    state.cards.filter(
+                                      (x) =>
+                                        x.boardId === c.childBoardId && x.done,
+                                    ).length
+                                  }{' '}
+                                  /{' '}
+                                  {
+                                    state.cards.filter(
+                                      (x) => x.boardId === c.childBoardId,
+                                    ).length
+                                  }{' '}
+                                  готово
+                                </span>
+                              </div>
+                            </section>
+                          ))}
+                      </div>
+                    ) : (
+                      <EmptyState
+                        icon={Layers}
+                        title="Дайте замыслу своё пространство"
+                        detail="У каждого проекта будет собственная доска. Внутри можно создавать задачи и другие проекты."
                       />
                     ))}
-                  </div>
-                )}
-                {view === 'settings' && (
-                  <div className="settings-stack">
-                    <section className="settings-card">
-                      <div className="section-heading">
-                        <CalendarDays size={21} />
-                        <div>
-                          <h2>Внешние календари</h2>
-                          <p>
-                            Подписки обновляются каждые 15 минут, пока
-                            приложение открыто.
-                          </p>
+                  {view === 'reviews' && (
+                    <div className="review-grid">
+                      {state.reviews.map((r) => (
+                        <ReviewPanel
+                          key={r.id}
+                          review={r}
+                          pending={pending}
+                          act={act}
+                          addPrompt={() =>
+                            setNewForm({ kind: 'prompt', title: '', id: r.id })
+                          }
+                          capturePrompt={(title) => {
+                            navigate('inbox');
+                            setNewForm({
+                              kind: 'card',
+                              title: `Что сделать: ${title}`,
+                              placement: 'inbox',
+                              cardType: 'task',
+                            });
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {view === 'settings' && (
+                    <div className="settings-stack">
+                      <section className="settings-card">
+                        <div className="section-heading">
+                          <CalendarDays size={21} />
+                          <div>
+                            <h2>Внешние календари</h2>
+                            <p>
+                              Подписки обновляются каждые 15 минут, пока
+                              приложение открыто.
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      {state.sources.length ? (
-                        state.sources.map((s) => (
-                          <div className="source-row" key={s.id}>
-                            <ScopeDot color={s.color} />
-                            <div>
-                              <b>{s.title}</b>
-                              <small>
-                                {s.kind === 'feed'
-                                  ? 'Подписка ICS'
-                                  : 'Импорт файла'}{' '}
-                                ·{' '}
-                                {
-                                  state.events.filter(
-                                    (e) => e.sourceId === s.id,
-                                  ).length
-                                }{' '}
-                                событий · {prettyDate(s.lastSynced)},{' '}
-                                {clock(s.lastSynced)}
-                              </small>
-                            </div>
-                            <Checkbox
-                              aria-label={`Показывать ${s.title}`}
-                              checked={s.enabled}
-                              disabled={pending}
-                              onCheckedChange={() =>
-                                void act({ type: 'source.toggle', id: s.id })
-                              }
-                            />
-                            {s.kind === 'feed' && (
-                              <button
-                                className="icon-btn"
-                                aria-label={`Обновить ${s.title}`}
+                        {state.sources.length ? (
+                          state.sources.map((s) => (
+                            <div className="source-row" key={s.id}>
+                              <ScopeDot color={s.color} />
+                              <div>
+                                <b>{s.title}</b>
+                                <small>
+                                  {s.kind === 'feed'
+                                    ? 'Подписка ICS'
+                                    : 'Импорт файла'}{' '}
+                                  ·{' '}
+                                  {
+                                    state.events.filter(
+                                      (e) => e.sourceId === s.id,
+                                    ).length
+                                  }{' '}
+                                  событий · {prettyDate(s.lastSynced)},{' '}
+                                  {clock(s.lastSynced)}
+                                </small>
+                              </div>
+                              <Checkbox
+                                aria-label={`Показывать ${s.title}`}
+                                checked={s.enabled}
                                 disabled={pending}
-                                onClick={() =>
-                                  void request(
-                                    '/api/calendars',
-                                    { sourceId: s.id },
-                                    'Календарь обновлён',
+                                onCheckedChange={() =>
+                                  void act({ type: 'source.toggle', id: s.id })
+                                }
+                              />
+                              {s.kind === 'feed' && (
+                                <button
+                                  className="icon-btn"
+                                  aria-label={`Обновить ${s.title}`}
+                                  disabled={pending}
+                                  onClick={() =>
+                                    void request(
+                                      '/api/calendars',
+                                      { sourceId: s.id },
+                                      'Календарь обновлён',
+                                    )
+                                  }
+                                >
+                                  <RefreshCw size={17} />
+                                </button>
+                              )}
+                              <RemoveSource
+                                pending={pending}
+                                title={s.title}
+                                remove={() =>
+                                  act(
+                                    { type: 'source.remove', id: s.id },
+                                    'Календарь отключён',
                                   )
                                 }
-                              >
-                                <RefreshCw size={17} />
-                              </button>
-                            )}
-                            <RemoveSource
-                              pending={pending}
-                              title={s.title}
-                              remove={() =>
-                                act(
-                                  { type: 'source.remove', id: s.id },
-                                  'Календарь отключён',
-                                )
-                              }
-                            />
+                              />
+                            </div>
+                          ))
+                        ) : (
+                          <EmptyState
+                            icon={CalendarDays}
+                            title="Все календари рядом"
+                            detail="Добавьте ссылку подписки ICS или импортируйте файл календаря."
+                          />
+                        )}
+                        <button
+                          className="quiet-button"
+                          onClick={() => setImportOpen(true)}
+                        >
+                          <Plus size={16} />
+                          Добавить календарь
+                        </button>
+                      </section>
+                      <section className="settings-card">
+                        <div className="section-heading">
+                          <ArrowDownToLine size={21} />
+                          <div>
+                            <h2>Быстрый захват на телефоне</h2>
+                            <p>
+                              Откройте страницу захвата и добавьте её на
+                              домашний экран через меню браузера.
+                            </p>
                           </div>
-                        ))
-                      ) : (
-                        <EmptyState
-                          icon={CalendarDays}
-                          title="Все календари рядом"
-                          detail="Добавьте ссылку подписки ICS или импортируйте файл календаря."
-                        />
-                      )}
-                      <button
-                        className="quiet-button"
-                        onClick={() => setImportOpen(true)}
-                      >
-                        <Plus size={16} />
-                        Добавить календарь
-                      </button>
-                    </section>
-                    <section className="settings-card">
-                      <div className="section-heading">
-                        <ArrowDownToLine size={21} />
-                        <div>
-                          <h2>Быстрый захват на телефоне</h2>
-                          <p>
-                            Откройте страницу захвата и добавьте её на домашний
-                            экран через меню браузера.
-                          </p>
                         </div>
-                      </div>
-                      <a className="quiet-button" href="/?capture=1">
-                        Открыть страницу захвата
-                        <ArrowUpRight size={15} />
-                      </a>
-                      <p className="setting-footnote">
-                        Веб-клиенту нужен интернет. Нативный виджет и
-                        офлайн-очередь пока не подключены.
-                      </p>
-                    </section>
-                    <section className="settings-card">
-                      <div className="section-heading">
-                        <ShieldCheck size={21} />
-                        <div>
-                          <h2>Личное пространство</h2>
-                          <p>
-                            Данные хранятся на сервере и привязаны к вашему
-                            аккаунту.
-                          </p>
+                        <a className="quiet-button" href="/?capture=1">
+                          Открыть страницу захвата
+                          <ArrowUpRight size={15} />
+                        </a>
+                        <p className="setting-footnote">
+                          Веб-клиенту нужен интернет. Нативный виджет и
+                          офлайн-очередь пока не подключены.
+                        </p>
+                      </section>
+                      <section className="settings-card">
+                        <div className="section-heading">
+                          <ShieldCheck size={21} />
+                          <div>
+                            <h2>Личное пространство</h2>
+                            <p>
+                              Данные хранятся на сервере и привязаны к вашему
+                              аккаунту.
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="settings-line">
-                        <span>Часовой пояс</span>
-                        <b>Москва · UTC+3</b>
-                      </div>
-                      <div className="settings-line">
-                        <span>Вход</span>
-                        <b>ChatGPT</b>
-                      </div>
-                      <p className="setting-footnote">
-                        Яндекс ID, CalDAV и редактирование событий у провайдера
-                        — следующие интеграции.
-                      </p>
-                      <a
-                        className="text-button"
-                        href="/signout-with-chatgpt?return_to=%2F"
-                        target="_top"
-                      >
-                        <LogOut size={15} />
-                        Выйти
-                      </a>
-                    </section>
-                  </div>
-                )}
-                {view === 'agent' && <AgentPanel history={state.history} />}
-              </>
-            )
-          )}
-        </main>
-        <footer className="workspace-footer">
-          <span>
-            <Orbit size={14} /> life os
-          </span>
-          <span>Меньше держать в голове. Больше внимания жизни.</span>
-        </footer>
-      </SidebarInset>
+                        <div className="settings-line">
+                          <span>Часовой пояс</span>
+                          <b>Москва · UTC+3</b>
+                        </div>
+                        <div className="settings-line">
+                          <span>Вход</span>
+                          <b>ChatGPT</b>
+                        </div>
+                        <p className="setting-footnote">
+                          Яндекс ID, CalDAV и редактирование событий у
+                          провайдера — следующие интеграции.
+                        </p>
+                        <a
+                          className="text-button"
+                          href="/signout-with-chatgpt?return_to=%2F"
+                          target="_top"
+                        >
+                          <LogOut size={15} />
+                          Выйти
+                        </a>
+                      </section>
+                    </div>
+                  )}
+                  {view === 'agent' && <AgentPanel history={state.history} />}
+                </>
+              )
+            )}
+          </main>
+          <footer className="workspace-footer">
+            <span>
+              <Orbit size={14} /> life os
+            </span>
+            <span>Меньше держать в голове. Больше внимания жизни.</span>
+          </footer>
+        </SidebarInset>
+      </Sheet>
       <Dialog
         open={!!newForm}
         onOpenChange={(open) => {
@@ -1859,6 +1905,7 @@ function CardDetails({
   close: () => void;
   openProject: () => void;
 }) {
+  const detailsFormId = useId();
   const [title, setTitle] = useState(card.title),
     [notes, setNotes] = useState(card.notes),
     [tags, setTags] = useState(card.tags),
@@ -1910,12 +1957,10 @@ function CardDetails({
               : state.boards.find((b) => b.id === card.boardId)?.title}
         </div>
         <SheetTitle>{card.title}</SheetTitle>
-        <SheetDescription>
-          Детали, следующие шаги и место в вашем расписании.
-        </SheetDescription>
+        <SheetDescription>Название, заметки и следующие шаги.</SheetDescription>
       </SheetHeader>
       <div className="detail-body">
-        <form className="form-stack" onSubmit={save}>
+        <form id={detailsFormId} className="form-stack" onSubmit={save}>
           <label>
             Название
             <input
@@ -1968,9 +2013,6 @@ function CardDetails({
               ))}
             </div>
           </div>
-          <button className="primary" disabled={pending}>
-            Сохранить детали
-          </button>
         </form>
         {card.type === 'project' && (
           <button className="project-open" onClick={openProject}>
@@ -1996,7 +2038,9 @@ function CardDetails({
                     void act({ type: 'step.toggle', id: card.id, stepId: s.id })
                   }
                 />
-                <span className={s.done ? 'strike' : ''}>{s.title}</span>
+                <span className={`step-title ${s.done ? 'strike' : ''}`}>
+                  {s.title}
+                </span>
                 <button
                   className="icon-btn"
                   aria-label={`Удалить шаг ${s.title}`}
@@ -2034,46 +2078,48 @@ function CardDetails({
             </form>
           </section>
         )}
-        <section className="detail-section">
-          <h3>
-            <CalendarDays size={18} />
-            Запланировать время
-          </h3>
-          {card.placement === 'calendar' && (
-            <p className="schedule-current">
-              {prettyDate(card.start!)} · {clock(card.start!)} —{' '}
-              {clock(card.end!)}
-            </p>
-          )}
-          <form className="form-stack" onSubmit={schedule}>
-            <label>
-              Начало · Москва
-              <input
-                type="datetime-local"
-                required
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </label>
-            <label>
-              Длительность, минуты
-              <input
-                type="number"
-                min={5}
-                max={10080}
-                required
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-              />
-            </label>
-            <button className="quiet-button" disabled={pending}>
-              <CalendarClock size={16} />
-              {card.placement === 'calendar'
-                ? 'Изменить время'
-                : 'Перенести в календарь'}
-            </button>
-          </form>
-        </section>
+        {card.type !== 'project' && type !== 'project' && (
+          <section className="detail-section">
+            <h3>
+              <CalendarDays size={18} />
+              Запланировать время
+            </h3>
+            {card.placement === 'calendar' && (
+              <p className="schedule-current">
+                {prettyDate(card.start!)} · {clock(card.start!)} —{' '}
+                {clock(card.end!)}
+              </p>
+            )}
+            <form className="form-stack" onSubmit={schedule}>
+              <label>
+                Начало · Москва
+                <input
+                  type="datetime-local"
+                  required
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                />
+              </label>
+              <label>
+                Длительность, минуты
+                <input
+                  type="number"
+                  min={5}
+                  max={10080}
+                  required
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                />
+              </label>
+              <button className="quiet-button" disabled={pending}>
+                <CalendarClock size={16} />
+                {card.placement === 'calendar'
+                  ? 'Изменить время'
+                  : 'Перенести в календарь'}
+              </button>
+            </form>
+          </section>
+        )}
         <section className="detail-section">
           <h3>
             <PanelsTopLeft size={18} />
@@ -2126,13 +2172,12 @@ function CardDetails({
         <div className="detail-actions">
           <button
             className="primary"
-            disabled={pending}
-            onClick={() =>
-              void act({ type: 'complete', id: card.id, done: !card.done })
-            }
+            type="submit"
+            form={detailsFormId}
+            disabled={pending || !title.trim()}
           >
-            <Check size={17} />
-            {card.done ? 'Вернуть в работу' : 'Завершить'}
+            <Save size={17} />
+            Сохранить
           </button>
           <button
             className="danger-button"

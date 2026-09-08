@@ -378,3 +378,86 @@ test('Inbox can schedule directly, reschedule, return to Inbox, and move to any 
   );
   assert.equal(state.cards.filter((c) => c.id === id).length, 1);
 });
+
+test('project scheduling is rejected atomically, including legacy project schedules', () => {
+  let state = createCard(initialState(NOW), 'Проект без времени', 'project');
+  const id = lastCard(state, 'Проект без времени').id;
+  const snapshot = structuredClone(state);
+  const schedule = {
+    type: 'schedule',
+    id,
+    start: '2026-09-09T10:00:00+03:00',
+    end: '2026-09-09T11:00:00+03:00',
+  };
+  assertDomainError(
+    () => action(state, schedule),
+    /Планируйте задачи внутри проекта/,
+  );
+  assert.deepEqual(state, snapshot);
+  // Previously saved project timestamps are preserved until an explicit move.
+  Object.assign(
+    state.cards.find((c) => c.id === id),
+    {
+      placement: 'calendar',
+      start: '2026-09-08T07:00:00.000Z',
+      end: '2026-09-08T08:00:00.000Z',
+    },
+  );
+  const legacy = structuredClone(state);
+  assertDomainError(
+    () => action(state, schedule),
+    /Планируйте задачи внутри проекта/,
+  );
+  assert.deepEqual(state, legacy);
+  state = action(state, { type: 'move', id });
+  assert.equal(state.cards.find((c) => c.id === id).placement, 'board');
+  assert.equal(state.cards.find((c) => c.id === id).start, undefined);
+  assert.equal(state.cards.find((c) => c.id === id).end, undefined);
+  assert.equal(state.cards.filter((c) => c.id === id).length, 1);
+});
+
+test('converting a scheduled task to a project clears time and preserves its return destination', () => {
+  let state = initialState(NOW);
+  const board = state.boards[0];
+  state = createCard(state, 'Будущий проект', 'task', {
+    boardId: board.id,
+    columnId: board.columns[2].id,
+    notes: 'Сохранить заметки',
+    tags: ['life'],
+  });
+  const before = structuredClone(lastCard(state, 'Будущий проект'));
+  state = action(state, {
+    type: 'schedule',
+    id: before.id,
+    start: '2026-09-09T10:00:00+03:00',
+    end: '2026-09-09T11:00:00+03:00',
+  });
+  state = action(state, { type: 'update', id: before.id, cardType: 'project' });
+  const after = state.cards.find((c) => c.id === before.id);
+  assert.deepEqual(after, {
+    ...before,
+    type: 'project',
+    childBoardId: after.childBoardId,
+  });
+  assert.ok(after.childBoardId);
+  assert.equal(
+    state.boards.find((b) => b.id === after.childBoardId).parentCardId,
+    before.id,
+  );
+});
+
+test('converting an Inbox task to a project keeps it in Inbox', () => {
+  let state = action(initialState(NOW), {
+    type: 'capture',
+    title: 'Проект из входящих',
+  });
+  const before = structuredClone(state.cards.at(-1));
+  state = action(state, { type: 'update', id: before.id, cardType: 'project' });
+  const after = state.cards.find((c) => c.id === before.id);
+  assert.deepEqual(after, {
+    ...before,
+    type: 'project',
+    childBoardId: after.childBoardId,
+  });
+  assert.ok(after.childBoardId);
+});
