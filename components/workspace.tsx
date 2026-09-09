@@ -585,7 +585,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
       )}
       <button className="card-title" onClick={() => setSelected(c.id)}>
         {compact && c.type !== 'task' && (
-          <span className="inbox-card-kind" title={labels[c.type]}>
+          <span className="compact-card-kind" title={labels[c.type]}>
             {c.type === 'project' ? (
               <Layers size={14} />
             ) : (
@@ -962,7 +962,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                       c.boardId === board.id &&
                       c.columnId === col.id,
                   )
-                  .map((c) => cardTile(c))}
+                  .map((c) => cardTile(c, true))}
                 <button className="add-card" onClick={() => openNew(col.id)}>
                   <Plus size={16} />
                   Добавить карточку
@@ -1152,11 +1152,6 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
           Добавить
         </button>
       </div>
-      <p className="muted calendar-hint">
-        Перетащите задачу на нужное время. Потяните верхнюю или нижнюю границу,
-        чтобы изменить длительность с шагом 15 минут. Время Москвы; внешние
-        события — только для чтения.
-      </p>
     </div>
   ) : null;
   const feedback = (

@@ -803,7 +803,7 @@ p {
   min-height: 365px;
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 6px;
 }
 .task-card {
   background: #fff;
@@ -2670,15 +2670,18 @@ p {
 .inbox-move-button:hover {
   color: #485cdd;
 }
-.board-inbox .task-card.compact {
+.task-card.compact {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: 4px 8px;
   padding: 6px 8px;
   border-radius: 7px;
 }
-.board-inbox .compact .card-title {
+.board-inbox .task-card.compact {
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+}
+.task-card.compact .card-title {
   grid-column: 2;
   grid-row: 1;
   align-self: center;
@@ -2687,31 +2690,31 @@ p {
   margin: 0;
   line-height: 1.45;
 }
-.inbox-card-kind {
+.compact-card-kind {
   display: inline-flex;
   vertical-align: -2px;
   margin-right: 6px;
   color: #8490a5;
 }
-.board-inbox .compact .card-bottom {
+.task-card.compact .card-bottom {
   display: contents;
 }
-.board-inbox .compact .tags,
-.board-inbox .compact .card-progress,
-.board-inbox .compact .project-link {
+.task-card.compact .tags,
+.task-card.compact .card-progress,
+.task-card.compact .project-link {
   grid-column: 2 / -1;
   min-width: 0;
   margin: 0;
 }
-.board-inbox .compact .tags:empty {
+.task-card.compact .tags:empty {
   display: none;
 }
-.board-inbox .compact .tag {
+.task-card.compact .tag {
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 2px 5px;
 }
-.board-inbox .compact .done-toggle {
+.task-card.compact .done-toggle {
   grid-column: 1;
   grid-row: 1;
   width: 24px;
@@ -2735,8 +2738,7 @@ p {
 .board-inbox .compact .inbox-move-button:hover {
   background: #f0f4fe;
 }
-.board-inbox
-  .compact
+.task-card.compact
   :is(.card-title, .done-toggle, .inbox-move-button):focus-visible {
   outline: 2px solid #536abd;
   outline-offset: 2px;
