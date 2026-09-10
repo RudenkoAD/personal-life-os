@@ -9,6 +9,7 @@ const allowed = [
   'inbox',
   'schedule',
   'complete',
+  'settings.update',
   'step.add',
   'step.toggle',
   'step.delete',
@@ -36,7 +37,7 @@ const tools = [
   {
     name: 'life_read',
     description:
-      'Read this user’s tasks, Inbox, boards, scopes, recurring task rules, calendar sources/events, fixed calendarSeries with exceptions, review lists and revision. Due recurring rules produce one Inbox task on read. Feed secrets are never returned.',
+      'Read this user’s settings, tasks (including archived cards), Inbox, boards, scopes, recurring task rules, calendar sources/events, fixed calendarSeries with exceptions, review lists and revision. Due recurring rules produce one Inbox task on read. Feed secrets are never returned.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -49,7 +50,7 @@ const tools = [
     description:
       'Apply one task, project, calendar or review action through the shared domain service. Read first and pass its revision; stale revisions fail. Action type: ' +
       allowed.join(', ') +
-      '. capture/create: title, optional cardType task/sequence/project, boardId, tags. update: id, title/notes/tags/cardType. move: id, boardId, columnId. schedule: id, ISO start/end. complete: id, done boolean. step.add: id,title; step.toggle/delete: id,stepId. tag.create/update: title,color (#RRGGBB); update/delete require id. Deleting a scope unlinks its tags but keeps tasks. recurrence.create: title,intervalMinutes (1..525600),firstAt (ISO instant), optional notes,tags (scope IDs); recurrence.update: id and changed fields only; firstAt explicitly resets the next appearance if not paused. Recurrences pause while any generated task is unfinished in Inbox, then restart from its completion or exit time. recurrence.delete: id; keeps existing tasks. event.create: title,startDate (YYYY-MM-DD), optional startTime (HH:mm, default09:00), durationMinutes (15..10080 in 15-minute steps), allDay (whole days), notes,location,tags,repeat {frequency:none/daily/weekly/monthly/yearly,interval:1..366,weekdays:0=Sunday..6=Saturday,monthlyMode:date/weekday,until:inclusive date OR count:1..10000}. Times use Moscow UTC+03. Missing month/leap dates are skipped. These events never create Inbox tasks. event.update: id and changed series fields; exceptions retain explicit overrides. event.override: id,occurrenceDate (original date), patch of changed event fields OR cancelled:true, affects one occurrence only. event.restore: id,occurrenceDate removes the exception. event.delete: id removes entire series. Other operations use id/title/boardId/promptId/notes/intervalDays as appropriate.',
+      '. capture/create: title, optional cardType task/sequence/project, boardId, tags. update: id, title/notes/tags/cardType. move: id, boardId, columnId. schedule: id, ISO start/end. complete: id, done boolean; true auto-archives when settings.autoArchiveCompleted is enabled (default true); false reopens and unarchives, preserving placement and schedule. Working views omit archived cards. settings.update: autoArchiveCompleted boolean; enabling archives existing completed cards, disabling affects future completions only. step.add: id,title; step.toggle/delete: id,stepId. tag.create/update: title,color (#RRGGBB); update/delete require id. Deleting a scope unlinks its tags but keeps tasks. recurrence.create: title,intervalMinutes (1..525600),firstAt (ISO instant), optional notes,tags (scope IDs); recurrence.update: id and changed fields only; firstAt explicitly resets the next appearance if not paused. Recurrences pause while any generated task is unfinished in Inbox, then restart from its completion or exit time. recurrence.delete: id; keeps existing tasks. event.create: title,startDate (YYYY-MM-DD), optional startTime (HH:mm, default09:00), durationMinutes (15..10080 in 15-minute steps), allDay (whole days), notes,location,tags,repeat {frequency:none/daily/weekly/monthly/yearly,interval:1..366,weekdays:0=Sunday..6=Saturday,monthlyMode:date/weekday,until:inclusive date OR count:1..10000}. Times use Moscow UTC+03. Missing month/leap dates are skipped. These events never create Inbox tasks. event.update: id and changed series fields; exceptions retain explicit overrides. event.override: id,occurrenceDate (original date), patch of changed event fields OR cancelled:true, affects one occurrence only. event.restore: id,occurrenceDate removes the exception. event.delete: id removes entire series. Other operations use id/title/boardId/promptId/notes/intervalDays as appropriate.',
     inputSchema: {
       type: 'object',
       properties: {

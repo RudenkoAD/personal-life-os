@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { initialState, type LifeState } from '../lib/domain.ts';
+import { initialState, normalizeState, type LifeState } from '../lib/domain.ts';
 import { materializeRecurrences } from '../lib/recurrences.ts';
 export function rawDb() {
   if (!env.DB) throw new Error('Storage unavailable');
@@ -26,9 +26,7 @@ async function readState(owner: string): Promise<LifeState> {
   }
   if (!row) throw new Error('Storage unavailable');
   const state: LifeState = JSON.parse(row.data);
-  state.recurrences ??= [];
-  state.calendarSeries ??= [];
-  return state;
+  return normalizeState(state);
 }
 export async function loadState(
   owner: string,

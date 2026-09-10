@@ -221,6 +221,22 @@
 .settings-columns {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
 }
+.preference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  font-size: 14px;
+}
+.archive-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.archive-list .task-card {
+  cursor: default;
+}
 .agent-columns {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
 }

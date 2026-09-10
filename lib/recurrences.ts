@@ -59,6 +59,7 @@ export function materializeRecurrences(
       tags: [...rule.tags],
       steps: [],
       done: false,
+      archived: false,
       createdAt: rule.nextAt,
       recurrenceId: rule.id,
     });

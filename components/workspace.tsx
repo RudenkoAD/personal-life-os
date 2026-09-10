@@ -74,6 +74,7 @@ import {
   PopoverTitle,
 } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -87,6 +88,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Save,
+  Archive,
   Menu,
   Inbox,
   PanelsTopLeft,
@@ -137,6 +139,7 @@ type View =
   | 'projects'
   | 'reviews'
   | 'recurring'
+  | 'archive'
   | 'settings'
   | 'agent';
 type NewForm = {
@@ -450,11 +453,16 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
   };
 
   const board = state?.boards.find((b) => b.id === boardId) ?? state?.boards[0];
-  const matches = (c: { title: string; tags: string[]; done?: boolean }) =>
+  const matchesSearch = (c: { title: string; tags: string[] }) =>
     (scope === 'all' || c.tags.includes(scope)) &&
-    c.title.toLowerCase().includes(query.toLowerCase()) &&
-    (showDone || !c.done);
-  const visible = state?.cards.filter(matches) ?? [],
+    c.title.toLowerCase().includes(query.toLowerCase());
+  const matches = (c: { title: string; tags: string[]; done?: boolean }) =>
+    matchesSearch(c) && (showDone || !c.done);
+  const activeCards = state?.cards.filter((c) => !c.archived) ?? [];
+  const archived =
+    state?.cards.filter((c) => c.archived && matchesSearch(c)) ?? [];
+  const filterActive = scope !== 'all' || (view !== 'archive' && !showDone);
+  const visible = activeCards.filter(matches),
     inbox = visible.filter((c) => c.placement === 'inbox'),
     scheduled = visible.filter((c) => c.placement === 'calendar');
   const importedEvents =
@@ -560,7 +568,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     <article
       key={c.id}
       className={`task-card ${c.done ? 'completed' : ''} ${dragged === c.id ? 'dragging' : ''} ${compact ? 'compact' : ''}`}
-      draggable={!pending}
+      draggable={!pending && !c.archived}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/life-card', c.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -638,6 +646,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
         <button
           className={`done-toggle ${c.done ? 'checked' : ''}`}
           aria-label={c.done ? `Вернуть: ${c.title}` : `Завершить: ${c.title}`}
+          title={c.archived ? 'Вернуть в работу' : undefined}
           disabled={pending}
           onClick={() =>
             void act(
@@ -649,7 +658,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
           <Check size={13} />
         </button>
       </div>
-      {c.placement === 'inbox' && board && (
+      {!c.archived && c.placement === 'inbox' && board && (
         <DropdownMenu>
           <DropdownMenuTrigger
             className="inbox-move-button"
@@ -697,6 +706,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     ['projects', 'Проекты', Layers],
     ['reviews', 'Обзоры', ListChecks],
     ['recurring', 'Рекуррентные', Repeat2],
+    ['archive', 'Архив', Archive],
   ];
   const titles: Record<View, string> = {
     board: board?.title ?? 'Моя доска',
@@ -705,6 +715,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
     projects: 'Проекты',
     reviews: 'Обзоры',
     recurring: 'Рекуррентные',
+    archive: 'Архив',
     settings: 'Настройки',
     agent: 'Ваш агент',
   };
@@ -817,7 +828,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
         <p className="board-inbox-hint">
           Перетащите задачу в колонку доски или на время в календаре.
         </p>
-        {state.cards.filter((c) => c.placement === 'inbox').length >
+        {activeCards.filter((c) => c.placement === 'inbox').length >
           inbox.length && (
           <button
             className="inbox-filter-note"
@@ -1100,7 +1111,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
             <CalendarGrid
               days={days}
               scheduled={scheduled}
-              allCards={state.cards}
+              allCards={activeCards}
               events={events}
               sources={state.sources}
               pending={pending}
@@ -1353,7 +1364,7 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
             ) : (
               <h1 className="view-title">{titles[view]}</h1>
             )}
-            {(isDockView || view === 'projects') && (
+            {(isDockView || view === 'projects' || view === 'archive') && (
               <>
                 <label className="search-box topbar-search">
                   <Search size={16} />
@@ -1374,16 +1385,14 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                 </label>
                 <Popover>
                   <PopoverTrigger
-                    className={`topbar-filter ${scope !== 'all' || !showDone ? 'has-filters' : ''}`}
+                    className={`topbar-filter ${filterActive ? 'has-filters' : ''}`}
                     aria-label="Фильтры задач"
                     title="Фильтры задач"
                     disabled={!state}
                   >
                     <Settings2 size={17} />
                     <span className="sr-only">Фильтры</span>
-                    {(scope !== 'all' || !showDone) && (
-                      <span className="filter-active-dot" />
-                    )}
+                    {filterActive && <span className="filter-active-dot" />}
                   </PopoverTrigger>
                   <PopoverContent
                     className="workspace-filter-popover"
@@ -1404,13 +1413,15 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                             })),
                           ]}
                         />
-                        <label className="checkbox-label">
-                          <Checkbox
-                            checked={showDone}
-                            onCheckedChange={(v) => setShowDone(v === true)}
-                          />
-                          Показывать готовые
-                        </label>
+                        {view !== 'archive' && (
+                          <label className="checkbox-label">
+                            <Checkbox
+                              checked={showDone}
+                              onCheckedChange={(v) => setShowDone(v === true)}
+                            />
+                            Показывать готовые
+                          </label>
+                        )}
                         <button
                           className="text-button"
                           onClick={() => {
@@ -1670,6 +1681,43 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                   )}
                   {view === 'settings' && (
                     <div className="settings-stack settings-columns">
+                      <section className="settings-card">
+                        <div className="section-heading">
+                          <Archive size={21} />
+                          <h2>Выполненные задачи</h2>
+                        </div>
+                        <div className="preference-row">
+                          <label htmlFor="auto-archive-completed">
+                            Автоархивация
+                          </label>
+                          <Switch
+                            id="auto-archive-completed"
+                            checked={state.settings.autoArchiveCompleted}
+                            disabled={pending}
+                            onCheckedChange={(checked) =>
+                              void act({
+                                type: 'settings.update',
+                                autoArchiveCompleted: checked,
+                              })
+                            }
+                          />
+                        </div>
+                        <details className="compact-help">
+                          <summary>Как это работает</summary>
+                          <p>
+                            Выполненные задачи уходят в архив сразу. При
+                            включении туда попадут и уже выполненные. Выключение
+                            действует на следующие завершения; из архива задачу
+                            можно вернуть в работу.
+                          </p>
+                        </details>
+                        <button
+                          className="text-button"
+                          onClick={() => navigate('archive')}
+                        >
+                          Открыть архив
+                        </button>
+                      </section>
                       <ScopesSettings tags={state.tags} act={act} />
                       <section className="settings-card">
                         <div className="section-heading">
@@ -1788,6 +1836,19 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                           </a>
                         </details>
                       </section>
+                    </div>
+                  )}
+                  {view === 'archive' && (
+                    <div className="archive-list">
+                      {archived.length ? (
+                        archived.map((c) => cardTile(c, true))
+                      ) : (
+                        <p className="inline-empty">
+                          {query || scope !== 'all'
+                            ? 'Нет подходящих задач'
+                            : 'Архив пуст'}
+                        </p>
+                      )}
                     </div>
                   )}
                   {view === 'agent' && <AgentPanel history={state.history} />}
@@ -2002,7 +2063,7 @@ function CardDetails({
     <>
       <SheetHeader>
         <div className="detail-eyebrow">
-          {labels[card.type]} ·{' '}
+          {labels[card.type]} · {card.archived && 'Архив · '}
           {card.placement === 'inbox'
             ? 'Входящие'
             : card.placement === 'calendar'
@@ -2131,7 +2192,7 @@ function CardDetails({
             </form>
           </section>
         )}
-        {card.type !== 'project' && type !== 'project' && (
+        {!card.archived && card.type !== 'project' && type !== 'project' && (
           <section className="detail-section">
             <h3>
               <CalendarDays size={18} />
@@ -2173,56 +2234,75 @@ function CardDetails({
             </form>
           </section>
         )}
-        <section className="detail-section">
-          <h3>
-            <PanelsTopLeft size={18} />
-            {card.placement === 'calendar'
-              ? 'Вернуть на доску'
-              : 'Место на доске'}
-          </h3>
-          <div className="form-stack">
-            <SelectBox
-              value={target}
-              onChange={(v) => {
-                setTarget(v);
-                setColumn(state.boards.find((b) => b.id === v)!.columns[0].id);
-              }}
-              label="Доска"
-              options={state.boards
-                .filter((b) => b.id !== card.childBoardId)
-                .map((b) => ({ value: b.id, label: b.title }))}
-            />
-            <SelectBox
-              value={column}
-              onChange={setColumn}
-              label="Колонка"
-              options={
-                state.boards
-                  .find((b) => b.id === target)
-                  ?.columns.map((c) => ({ value: c.id, label: c.title })) ?? []
-              }
-            />
+        {!card.archived && (
+          <section className="detail-section">
+            <h3>
+              <PanelsTopLeft size={18} />
+              {card.placement === 'calendar'
+                ? 'Вернуть на доску'
+                : 'Место на доске'}
+            </h3>
+            <div className="form-stack">
+              <SelectBox
+                value={target}
+                onChange={(v) => {
+                  setTarget(v);
+                  setColumn(
+                    state.boards.find((b) => b.id === v)!.columns[0].id,
+                  );
+                }}
+                label="Доска"
+                options={state.boards
+                  .filter((b) => b.id !== card.childBoardId)
+                  .map((b) => ({ value: b.id, label: b.title }))}
+              />
+              <SelectBox
+                value={column}
+                onChange={setColumn}
+                label="Колонка"
+                options={
+                  state.boards
+                    .find((b) => b.id === target)
+                    ?.columns.map((c) => ({ value: c.id, label: c.title })) ??
+                  []
+                }
+              />
+              <button
+                className="quiet-button"
+                disabled={pending}
+                onClick={() =>
+                  void act(
+                    {
+                      type: 'move',
+                      id: card.id,
+                      boardId: target,
+                      columnId: column,
+                    },
+                    'Карточка на доске',
+                  )
+                }
+              >
+                <ArrowRight size={15} />
+                Переместить
+              </button>
+            </div>
+          </section>
+        )}
+        <div className="detail-actions">
+          {card.archived && (
             <button
               className="quiet-button"
               disabled={pending}
               onClick={() =>
                 void act(
-                  {
-                    type: 'move',
-                    id: card.id,
-                    boardId: target,
-                    columnId: column,
-                  },
-                  'Карточка на доске',
+                  { type: 'complete', id: card.id, done: false },
+                  'Задача возвращена в работу',
                 )
               }
             >
-              <ArrowRight size={15} />
-              Переместить
+              Вернуть в работу
             </button>
-          </div>
-        </section>
-        <div className="detail-actions">
+          )}
           <button
             className="primary"
             type="submit"

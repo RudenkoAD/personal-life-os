@@ -23,6 +23,7 @@ export interface Card {
   steps: Step[];
   done: boolean;
   start?: string;
+  archived?: boolean;
   end?: string;
   createdAt: string;
   recurrenceId?: string;
@@ -85,6 +86,7 @@ export interface CalendarEvent {
 }
 export interface LifeState {
   revision: number;
+  settings: { autoArchiveCompleted: boolean };
   cards: Card[];
   boards: Board[];
   tags: Scope[];
@@ -156,6 +158,7 @@ export function dateKey(date = new Date()) {
 export function initialState(now = new Date()): LifeState {
   return {
     revision: 0,
+    settings: { autoArchiveCompleted: true },
     cards: [],
     boards: [{ id: 'main', title: 'Моя доска', columns: columns() }],
     tags: [
@@ -188,6 +191,16 @@ export function initialState(now = new Date()): LifeState {
     events: [],
     history: [],
   };
+}
+// Older workspaces gain defaults on read; the next normal write persists them.
+export function normalizeState(state: LifeState): LifeState {
+  state.recurrences ??= [];
+  state.calendarSeries ??= [];
+  state.settings ??= { autoArchiveCompleted: true };
+  state.settings.autoArchiveCompleted ??= true;
+  for (const card of state.cards)
+    card.archived ??= card.done && state.settings.autoArchiveCompleted;
+  return state;
 }
 function boardOf(s: LifeState, v: unknown) {
   return s.boards.find((b) => b.id === v) ?? fail('Доска не найдена');
@@ -242,6 +255,7 @@ function addCard(
     tags: a.tags ? tagIds(s, a.tags) : [],
     steps: [],
     done: false,
+    archived: false,
     createdAt: now,
   };
   if (type === 'project') {
@@ -265,8 +279,7 @@ export function applyAction(
 ): LifeState {
   const s = structuredClone(input),
     now = nowDate.toISOString();
-  s.recurrences ??= [];
-  s.calendarSeries ??= [];
+  normalizeState(s);
   let message = 'Обновлено';
   if (!a || typeof a.type !== 'string') fail('Неизвестное действие');
   switch (a.type) {
@@ -356,7 +369,17 @@ export function applyAction(
       const c = cardOf(s, a.id);
       if (typeof a.done !== 'boolean') fail('Не указан статус');
       c.done = a.done;
+      c.archived = c.done && !!(c.archived || s.settings.autoArchiveCompleted);
       message = `${c.done ? 'Завершено' : 'Возвращено'}: ${c.title}`;
+      break;
+    }
+    case 'settings.update': {
+      if (typeof a.autoArchiveCompleted !== 'boolean')
+        fail('Укажите, архивировать ли выполненные задачи');
+      s.settings.autoArchiveCompleted = a.autoArchiveCompleted;
+      if (a.autoArchiveCompleted)
+        for (const card of s.cards) if (card.done) card.archived = true;
+      message = `Автоархивация ${a.autoArchiveCompleted ? 'включена' : 'выключена'}`;
       break;
     }
     case 'step.add': {

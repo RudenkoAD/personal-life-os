@@ -73,6 +73,44 @@ function setup(overrides = {}) {
     receipts,
   };
 }
+test('archive preferences and completion project immediately and preserve action order after sync', async () => {
+  const h = setup(),
+    gate = deferred();
+  h.server = applyAction(h.server, { type: 'capture', title: 'Archive queue' });
+  const id = h.server.cards[0].id,
+    send = h.deps.send;
+  h.deps.send = async (...args) => {
+    await gate.promise;
+    return send(...args);
+  };
+  await h.queue.start();
+  try {
+    assert.equal(
+      h.queue.enqueue({ type: 'settings.update', autoArchiveCompleted: false }),
+      true,
+    );
+    assert.equal(h.queue.snapshot().state.settings.autoArchiveCompleted, false);
+    assert.equal(h.queue.enqueue({ type: 'complete', id, done: true }), true);
+    assert.equal(h.queue.snapshot().state.cards[0].archived, false);
+    assert.equal(
+      h.queue.enqueue({ type: 'settings.update', autoArchiveCompleted: true }),
+      true,
+    );
+    assert.equal(h.queue.snapshot().state.cards[0].archived, true);
+    assert.equal(h.queue.enqueue({ type: 'complete', id, done: false }), true);
+    assert.equal(h.queue.snapshot().state.cards[0].archived, false);
+    assert.equal(h.server.revision, 1);
+    gate.resolve();
+    await until(() => h.queue.snapshot().count === 0);
+    assert.deepEqual(h.queue.snapshot().state, h.server);
+    assert.equal(h.server.settings.autoArchiveCompleted, true);
+    assert.equal(h.server.cards[0].archived, false);
+    assert.equal(h.server.cards[0].done, false);
+  } finally {
+    gate.resolve();
+    h.queue.stop();
+  }
+});
 test('rapid create/edit/move/schedule renders before response and acknowledgements preserve newer changes', async () => {
   const gate = deferred();
   const h = setup();
