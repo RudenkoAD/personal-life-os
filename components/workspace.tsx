@@ -1893,7 +1893,12 @@ export default function Workspace({
                       )}
                     </div>
                   )}
-                  {view === 'agent' && <AgentPanel history={state.history} />}
+                  {view === 'agent' && (
+                    <AgentPanel
+                      history={state.history}
+                      passwordAuth={passwordAuth}
+                    />
+                  )}
                 </>
               )
             )}
@@ -2847,7 +2852,13 @@ function ImportCalendar({
     </Dialog>
   );
 }
-function AgentPanel({ history }: { history: LifeState['history'] }) {
+function AgentPanel({
+  history,
+  passwordAuth,
+}: {
+  history: LifeState['history'];
+  passwordAuth: boolean;
+}) {
   const [tokens, setTokens] = useState<
       { hash: string; name: string; scope: string; created_at: string }[]
     >([]),
@@ -2885,9 +2896,9 @@ function AgentPanel({ history }: { history: LifeState['history'] }) {
         <details className="compact-help">
           <summary>Как подключить</summary>
           <p>
-            Используйте адрес MCP и токен ниже. Приватный сайт также требует
-            входа через ChatGPT; одного токена недостаточно. Подключение
-            внешнего клиента нужно настроить и проверить.
+            {passwordAuth
+              ? 'Используйте адрес MCP и заголовок Authorization: Bearer <токен>.'
+              : 'Используйте адрес MCP и токен ниже. Для приватного сайта также нужен доступ через шлюз Sites.'}
           </p>
         </details>
         <form
