@@ -239,7 +239,15 @@ function EmptyState({
     </div>
   );
 }
-export default function Workspace({ ownerId }: { ownerId: string }) {
+export default function Workspace({
+  ownerId,
+  passwordAuth = false,
+  migrationDestination,
+}: {
+  ownerId: string;
+  passwordAuth?: boolean;
+  migrationDestination?: string;
+}) {
   const [state, setState] = useState<LifeState | null>(null),
     stateRef = useRef<LifeState | null>(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -1483,6 +1491,25 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
               )}
             </div>
             <div className="topbar-right">
+              {migrationDestination && (
+                <button
+                  className="btn secondary"
+                  disabled={sync.count > 0 || !!sync.error}
+                  onClick={async () => {
+                    await queueRef.current?.retry();
+                    const snapshot = queueRef.current?.snapshot();
+                    if (!snapshot || snapshot.count || snapshot.error) return;
+                    const target = new URL('/migrate', migrationDestination);
+                    target.hash = new URLSearchParams({
+                      layout:
+                        localStorage.getItem('life-os:dock-layout:v1') ?? '',
+                    }).toString();
+                    location.assign(target.href);
+                  }}
+                >
+                  Открыть в Yandex Cloud
+                </button>
+              )}
               <span
                 className={`save-indicator sync-status ${sync.error ? 'sync-error' : ''}`}
                 role="status"
@@ -1534,7 +1561,11 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                 </button>
                 <a
                   className="quiet-button"
-                  href="/signin-with-chatgpt?return_to=%2F"
+                  href={
+                    passwordAuth
+                      ? '/login'
+                      : '/signin-with-chatgpt?return_to=%2F'
+                  }
                   target="_top"
                 >
                   Войти
@@ -1815,15 +1846,26 @@ export default function Workspace({ ownerId }: { ownerId: string }) {
                       <section className="settings-card settings-extra">
                         <div className="account-toolbar">
                           <span>Москва · UTC+3</span>
-                          <span>Вход: ChatGPT</span>
-                          <a
-                            className="text-button"
-                            href="/signout-with-chatgpt?return_to=%2F"
-                            target="_top"
-                          >
-                            <LogOut size={15} />
-                            Выйти
-                          </a>
+                          <span>
+                            Вход: {passwordAuth ? 'пароль' : 'ChatGPT'}
+                          </span>
+                          {passwordAuth ? (
+                            <form method="post" action="/api/session/logout">
+                              <button className="text-button" type="submit">
+                                <LogOut size={15} />
+                                Выйти
+                              </button>
+                            </form>
+                          ) : (
+                            <a
+                              className="text-button"
+                              href="/signout-with-chatgpt?return_to=%2F"
+                              target="_top"
+                            >
+                              <LogOut size={15} />
+                              Выйти
+                            </a>
+                          )}
                         </div>
                         <details className="compact-help">
                           <summary>Захват с телефона</summary>

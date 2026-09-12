@@ -1,3 +1,4 @@
+import { forwardMigration } from '@/lib/migration-proxy';
 import { env } from 'cloudflare:workers';
 import { loadState, saveState, rawDb, type FeedChange } from '@/db/store';
 import { textValue, type Source, type CalendarEvent } from '@/lib/domain';
@@ -48,6 +49,8 @@ function credentials(a: Record<string, unknown>): CalendarCredentials {
 }
 export async function POST(request: Request) {
   try {
+    const forwarded = await forwardMigration(request);
+    if (forwarded) return forwarded;
     const user = await identity(request, true, true);
     const a = await body(request, 1100000);
     if (a.mode === 'caldav' && a.operation === 'discover') {

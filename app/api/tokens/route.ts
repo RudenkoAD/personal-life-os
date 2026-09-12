@@ -1,8 +1,11 @@
+import { forwardMigration } from '@/lib/migration-proxy';
 import { rawDb } from '@/db/store';
 import { textValue } from '@/lib/domain';
 import { identity, body, json, errorResponse, hashToken } from '@/lib/server';
 export async function GET(req: Request) {
   try {
+    const forwarded = await forwardMigration(req, true);
+    if (forwarded) return forwarded;
     const u = await identity(req, false, true);
     const r = await rawDb()
       .prepare(
@@ -17,6 +20,8 @@ export async function GET(req: Request) {
 }
 export async function POST(req: Request) {
   try {
+    const forwarded = await forwardMigration(req, true);
+    if (forwarded) return forwarded;
     const u = await identity(req, true, true),
       a = await body(req);
     const name = textValue(a.name, 'Название', 80);
@@ -44,6 +49,8 @@ export async function POST(req: Request) {
 }
 export async function DELETE(req: Request) {
   try {
+    const forwarded = await forwardMigration(req, true);
+    if (forwarded) return forwarded;
     const u = await identity(req, true, true),
       a = await body(req);
     await rawDb()

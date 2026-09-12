@@ -1,0 +1,7 @@
+[Unit]
+Description=Personal Life OS verified database backup
+RequiresMountsFor=/srv/personal-life-os
+[Service]
+Type=oneshot
+ExecStart=/opt/personal-life-os/app/deploy/yandex/backup.sh
+User=root

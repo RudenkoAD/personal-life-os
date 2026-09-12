@@ -1,4 +1,6 @@
 import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { runtime, usesPasswordAuth } from '@/lib/runtime-config';
+import { publicOrigin } from '@/lib/password-session';
 import { rawDb } from '@/db/store';
 export async function hashToken(token: string) {
   const digest = await crypto.subtle.digest(
@@ -15,11 +17,18 @@ export async function identity(
   accountOnly = false,
 ) {
   const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin)
+  const expectedOrigin = usesPasswordAuth()
+    ? publicOrigin(runtime.PUBLIC_BASE_URL)
+    : new URL(request.url).origin;
+  const auth = request.headers.get('authorization');
+  const bearer = !accountOnly && auth?.startsWith('Bearer ');
+  if (
+    (origin && origin !== expectedOrigin) ||
+    (usesPasswordAuth() && write && !bearer && origin !== expectedOrigin)
+  )
     throw Object.assign(new Error('Недопустимый источник запроса'), {
       status: 403,
     });
-  const auth = request.headers.get('authorization');
   if (auth?.startsWith('Bearer ') && !accountOnly) {
     const token = await rawDb()
       .prepare('SELECT owner_id, scope, name FROM agent_tokens WHERE hash = ?')

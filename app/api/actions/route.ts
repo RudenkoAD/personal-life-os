@@ -1,9 +1,12 @@
+import { forwardMigration } from '@/lib/migration-proxy';
 import { loadState, saveState, mutationReceipt } from '@/db/store';
 import { applyAction } from '@/lib/domain';
 import { applyMutation, validateMutation, mutationHash } from '@/lib/mutations';
 import { identity, body, json, errorResponse } from '@/lib/server';
 export async function POST(request: Request) {
   try {
+    const forwarded = await forwardMigration(request);
+    if (forwarded) return forwarded;
     const user = await identity(request, true);
     const payload = await body(request);
     const mutation = payload.mutation

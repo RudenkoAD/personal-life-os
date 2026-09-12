@@ -1,3 +1,4 @@
+import { forwardMigration } from '@/lib/migration-proxy';
 import { loadState, saveState } from '@/db/store';
 import { applyAction } from '@/lib/domain';
 import { body, identity, json, errorResponse } from '@/lib/server';
@@ -72,6 +73,8 @@ const tools = [
 ];
 export async function POST(req: Request) {
   try {
+    const forwarded = await forwardMigration(req);
+    if (forwarded) return forwarded;
     const r = await body(req),
       id = r.id ?? null;
     if (r.jsonrpc !== '2.0')

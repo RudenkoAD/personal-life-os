@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/yandex/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: /opt/personal-life-os/secrets/runtime.env
+        format: raw
+    volumes:
+      - /srv/personal-life-os/data:/data
+    expose:
+      - '3000'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: /opt/personal-life-os/secrets/https.env
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/personal-life-os/caddy:/data
+      - /srv/personal-life-os/caddy-config:/config
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

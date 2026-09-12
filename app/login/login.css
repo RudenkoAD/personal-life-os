@@ -1,0 +1,14 @@
+.password-login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.password-login > form {
+  width: min(100%, 340px);
+  padding: 20px;
+}
+.password-login h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}

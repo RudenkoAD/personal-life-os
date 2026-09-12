@@ -43,3 +43,17 @@ export const env = {
     },
   },
 };
+
+if (process.env.LIFE_OS_TEST_SQLITE === '1') {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const { openSqlite } = await import('../server/sqlite.ts');
+  const directory = mkdtempSync(join(tmpdir(), 'life-os-store-'));
+  env.DB = openSqlite(join(directory, 'test.sqlite'), fileURLToPath(dir));
+  process.on('exit', () => {
+    env.DB.close();
+    rmSync(directory, { recursive: true });
+  });
+}

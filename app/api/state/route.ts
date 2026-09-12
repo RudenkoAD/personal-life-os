@@ -1,7 +1,10 @@
+import { forwardMigration } from '@/lib/migration-proxy';
 import { loadState, acknowledgedMutations } from '@/db/store';
 import { identity, json, errorResponse } from '@/lib/server';
 export async function GET(request: Request) {
   try {
+    const forwarded = await forwardMigration(request);
+    if (forwarded) return forwarded;
     const user = await identity(request);
     const state = await loadState(user.owner);
     const pending = new URL(request.url).searchParams.get('mutations');
