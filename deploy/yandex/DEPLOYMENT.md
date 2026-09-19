@@ -31,3 +31,17 @@ Browser panel layout is local to each browser origin. Refresh the old tab and us
 Private local handoff files (not committed) live in `work/cloud-migration/`: `login.txt`, SSH key and pinned known_hosts, encrypted exports and their recipient private key. Codex credentials remain under its existing protected `mcp-secrets` path. Never add those files or runtime.env to an image or repository.
 
 SSH access updated on 2026-09-13: TCP/22 is allowed from `0.0.0.0/0` at the user's request; key authentication remains required. The previous two administration `/32` rules excluded the current connection source. Successful SSH after the rule change confirmed the cause of the timeout.
+
+## Private and shared spaces — 2026-09-19
+
+Released application commit `d13448d` (`Add private accounts and invite-only shared spaces`). Earlier deployed calendar/review functionality was first recorded separately as `d639ff2`, preserving the existing production feature set.
+
+- Image: `personal-life-os-app:d13448d`, SHA-256 `4a65766328658ca51bfe0386bd26278d93134cff632115858ab4276a08cbcef9`; running container label `org.opencontainers.image.revision=d13448d`.
+- Source archive SHA-256: `5a7cd8a8d21b6f90933fd57561cdc4c262053b9a86bc42c61f61790686dcd13a`. Exact committed source was built on the VM. Copies remain at `/opt/personal-life-os/releases/d13448d` and the normal app directory.
+- Before switching, the candidate image passed all three isolated HTTP suites (existing app, nested reviews, and accounts/spaces) under its own Node runtime, with temporary databases and no production credentials/data mounted.
+- Consistent stopped-app backup: `/srv/personal-life-os/backups/20260919-spaces-d13448d/`, containing SQLite, matching runtime secrets, previous source archive, and previous image ID. Directory mode 700 and database/secrets mode 600 were verified. Previous image retained as `personal-life-os-app:before-spaces-d13448d`.
+- Migration `0004_accounts_spaces.sql` applied successfully. SQLite integrity was `ok`. Existing workspace payload and all old rows in feeds, CalDAV connections, tokens (original columns), and mutation receipts matched the backup exactly. At verification: 1 account/private space, 72 cards, 1,066 events, 4 feeds, 1 encrypted CalDAV connection, 3 tokens, and 270 receipts. Counts are a release snapshot, not ongoing invariants.
+- Live checks passed: HTTPS login 200, anonymous state 401, authenticated state 200, unknown-space access 403, mismatched-account access 401, legacy v1 session 200, original MCP connection successful. Existing CalDAV credentials decrypted offline without fetching calendar providers. All 3 legacy tokens mapped to the original account. Running container reported zero restarts; logs showed server and scheduler startup without errors.
+- No demonstration users or shared spaces were added to production. Create a shared space and its invitation through the UI; see [spaces](../../docs/SPACES.md).
+
+The local checkout had no Git remote configured at release time. Both application commits were created locally; repository publication requires the destination URL. Browser interaction was not tested during this rollout. Recovery after this migration requires the full database and matching configuration, especially once additional users or shared spaces exist.
