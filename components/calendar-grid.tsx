@@ -10,7 +10,9 @@ import {
   dropInterval,
   encodeGrabOffset,
   pointerTimestamp,
+  selectionIntervalFromTimestamps,
   TRACK_HEIGHT,
+  moscowNowPosition,
 } from '@/lib/calendar-layout';
 import './calendar-grid.css';
 type Props = {
@@ -26,7 +28,7 @@ type Props = {
     start: string,
     end: string,
   ) => Promise<boolean>;
-  onCreateEvent: (day: string, time: string) => void;
+  onCreateEvent: (day: string, time: string, durationMinutes?: number) => void;
   onSelectCard: (id: string) => void;
   onSelectEvent: (event: CalendarEvent) => void;
   onDragCard: (id: string | null) => void;
@@ -40,6 +42,15 @@ type Drag = Interval & {
   pointer: number;
   element: HTMLElement;
   preview: Interval;
+};
+type Selection = {
+  day: string;
+  pointer: number;
+  startY: number;
+  startTimestamp: number;
+  currentY: number;
+  track: HTMLDivElement;
+  active: boolean;
 };
 const iso = (n: number) => new Date(n).toISOString();
 const clock = (n: number) =>
@@ -67,9 +78,48 @@ export function CalendarGrid({
   const bodyGrab = useRef<{ id: string; day: string; offset: number } | null>(
     null,
   );
+  const selection = useRef<Selection | null>(null);
+  const suppressDoubleClick = useRef(0);
   const [preview, setPreview] = useState<(Interval & { id: string }) | null>(
     null,
   );
+  const [now, setNow] = useState<Date | null>(null);
+  const cancelSelection = () => {
+    const current = selection.current;
+    if (!current) return;
+    selection.current = null;
+    setPreview(null);
+    if (current.track.hasPointerCapture(current.pointer))
+      current.track.releasePointerCapture(current.pointer);
+  };
+  const updateSelection = (current: Selection) => {
+    const rect = current.track.getBoundingClientRect();
+    const currentTimestamp = pointerTimestamp(
+      current.day,
+      current.currentY,
+      rect.top,
+      rect.height,
+    );
+    const stableRange = selectionIntervalFromTimestamps(
+      current.day,
+      current.startTimestamp,
+      currentTimestamp,
+    );
+    setPreview({ id: `selection:${current.day}`, ...stableRange });
+  };
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') setNow(new Date());
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
+  const nowPosition = now ? moscowNowPosition(now) : null;
   const schedule = (id: string, start: string, end: string) => {
     const event = events.find((event) => event.id === id && event.seriesId);
     return event
@@ -96,9 +146,10 @@ export function CalendarGrid({
   };
   useEffect(() => {
     const cancel = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && drag.current) {
+      if (e.key === 'Escape' && (drag.current || selection.current)) {
         e.preventDefault();
-        finish(true);
+        if (drag.current) finish(true);
+        if (selection.current) cancelSelection();
       }
     };
     window.addEventListener('keydown', cancel);
@@ -108,7 +159,15 @@ export function CalendarGrid({
       drag.current = null;
       if (current?.element.hasPointerCapture(current.pointer))
         current.element.releasePointerCapture(current.pointer);
+      cancelSelection();
     };
+  }, []);
+  const dayKey = days.join('|');
+  useEffect(() => () => cancelSelection(), [dayKey]);
+  useEffect(() => {
+    const cancel = () => cancelSelection();
+    window.addEventListener('blur', cancel);
+    return () => window.removeEventListener('blur', cancel);
   }, []);
   const begin = (
     e: React.PointerEvent<HTMLButtonElement>,
@@ -275,6 +334,65 @@ export function CalendarGrid({
     );
     void schedule(id, iso(next.start), iso(next.end));
   };
+  const beginSelection = (e: React.PointerEvent<HTMLDivElement>, day: string) => {
+    if (
+      e.target !== e.currentTarget ||
+      pending ||
+      drag.current ||
+      selection.current ||
+      e.button !== 0 ||
+      e.pointerType !== 'mouse'
+    )
+      return;
+    e.preventDefault();
+    selection.current = {
+      day,
+      pointer: e.pointerId,
+      startY: e.clientY,
+      startTimestamp: pointerTimestamp(
+        day,
+        e.clientY,
+        e.currentTarget.getBoundingClientRect().top,
+        e.currentTarget.getBoundingClientRect().height,
+      ),
+      currentY: e.clientY,
+      track: e.currentTarget,
+      active: false,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const moveSelection = (e: React.PointerEvent<HTMLDivElement>) => {
+    const current = selection.current;
+    if (!current || current.pointer !== e.pointerId) return;
+    current.currentY = e.clientY;
+    if (!current.active && Math.abs(current.currentY - current.startY) <= 4) return;
+    if (!current.active) {
+      current.active = true;
+    }
+    e.preventDefault();
+    updateSelection(current);
+  };
+  const finishSelection = (e: React.PointerEvent<HTMLDivElement>, cancel = false) => {
+    const current = selection.current;
+    if (!current || current.pointer !== e.pointerId) return;
+    current.currentY = e.clientY;
+    selection.current = null;
+    const rect = current.track.getBoundingClientRect();
+    const range = current.active && !cancel
+      ? selectionIntervalFromTimestamps(
+          current.day,
+          current.startTimestamp,
+          pointerTimestamp(current.day, current.currentY, rect.top, rect.height),
+        )
+      : null;
+    setPreview(null);
+    if (current.track.hasPointerCapture(current.pointer))
+      current.track.releasePointerCapture(current.pointer);
+    if (range) {
+      suppressDoubleClick.current = Date.now() + 500;
+      onCreateEvent(current.day, clock(range.start), (range.end - range.start) / 60000);
+    }
+  };
   const items = [
     ...scheduled
       .filter((c) => c.start && c.end && c.type !== 'project')
@@ -333,8 +451,18 @@ export function CalendarGrid({
             }
           }}
           onDrop={(e) => drop(e, day)}
+          onPointerDown={(e) => beginSelection(e, day)}
+          onPointerMove={moveSelection}
+          onPointerUp={(e) => finishSelection(e)}
+          onPointerCancel={(e) => finishSelection(e, true)}
+          onLostPointerCapture={(e) => finishSelection(e, true)}
           onDoubleClick={(e) => {
-            if (e.target !== e.currentTarget || pending) return;
+            if (
+              e.target !== e.currentTarget ||
+              pending ||
+              Date.now() < suppressDoubleClick.current
+            )
+              return;
             const rect = e.currentTarget.getBoundingClientRect();
             const next = dropInterval(
               day,
@@ -347,6 +475,29 @@ export function CalendarGrid({
             onCreateEvent(day, clock(next.start));
           }}
         >
+          {nowPosition?.day === day && (
+            <div
+              className="calendar-now-line"
+              style={{ top: `${nowPosition.top}px` }}
+              aria-hidden="true"
+            />
+          )}
+          {preview?.id === `selection:${day}` && (
+            <div
+              className="calendar-selection-preview"
+              style={{
+                top:
+                  ((preview.start - dayBounds(day).start) / 86400000) *
+                  TRACK_HEIGHT,
+                height: ((preview.end - preview.start) / 86400000) * TRACK_HEIGHT,
+              }}
+              aria-hidden="true"
+            >
+              <span>
+                {clock(preview.start)}–{clock(preview.end)}
+              </span>
+            </div>
+          )}
           {buildDayLayout(day, items).map((item) => {
             const original = {
                 start: Date.parse(item.start),

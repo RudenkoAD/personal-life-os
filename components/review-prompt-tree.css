@@ -1,0 +1,234 @@
+.review-prompt-tree {
+  min-width: 0;
+}
+.review-tree-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0 7px;
+  color: #78879e;
+  font-size: 12px;
+}
+.review-tree-progress > [data-slot='progress'] {
+  flex: 1;
+  min-width: 50px;
+}
+.review-tree-expand {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.review-tree-list {
+  min-width: 0;
+}
+.review-tree-node {
+  min-width: 0;
+}
+.review-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 2px 0 2px calc(min(var(--depth), 4) * 17px);
+  border-bottom: 1px solid #edf0f5;
+}
+.review-tree-chevron {
+  width: 20px;
+  height: 28px;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: #8a96aa;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.review-tree-chevron:disabled {
+  visibility: hidden;
+}
+.review-tree-check {
+  flex: none;
+}
+.review-tree-check[data-state='indeterminate'] {
+  border-color: #8992e9;
+  background: #8992e9;
+}
+.review-tree-check[data-state='indeterminate'] svg {
+  display: none;
+}
+.review-tree-check[data-state='indeterminate']::before {
+  content: '';
+  width: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: #fff;
+}
+.review-tree-title {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 3px;
+  border: 0;
+  background: none;
+  color: #46536d;
+  text-align: left;
+  font: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.review-tree-title:hover {
+  color: #485cdd;
+}
+.review-tree-title.strike {
+  color: #9aa4b4;
+  text-decoration: line-through;
+}
+.review-tree-count {
+  flex: none;
+  color: #9ba6b8;
+  font-size: 11px;
+}
+.review-tree-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0.55;
+  flex: none;
+}
+.review-tree-more {
+  position: relative;
+}
+.review-tree-more summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 27px;
+  padding: 5px 7px;
+  border: 1px solid #dfe5ee;
+  border-radius: 6px;
+  color: #66748d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.review-tree-more summary::-webkit-details-marker {
+  display: none;
+}
+.review-tree-menu {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  top: calc(100% + 4px);
+  display: grid;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid #dfe5ee;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 5px 18px #33446622;
+}
+.review-tree-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #46536d;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.review-tree-menu button:hover {
+  background: #f1f4f9;
+}
+.review-tree-menu button.danger {
+  color: #b55662;
+}
+.review-tree-row:hover .review-tree-actions,
+.review-tree-row:focus-within .review-tree-actions {
+  opacity: 1;
+}
+.review-tree-actions .icon-btn {
+  width: 27px;
+  height: 27px;
+  padding: 5px;
+}
+.review-tree-edit,
+.review-tree-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 3px 0 5px calc(24px + var(--depth, 0) * 17px);
+}
+.review-tree-edit {
+  flex: 1;
+  margin: 0;
+}
+.review-tree-edit input,
+.review-tree-add input {
+  min-width: 0;
+  flex: 1;
+  height: 30px;
+  padding: 4px 7px;
+  border: 1px solid #dfe5ee;
+  border-radius: 6px;
+  font: inherit;
+}
+.review-tree-add {
+  margin-left: 37px;
+}
+.review-tree-add-root {
+  margin-top: 7px;
+}
+.review-tree-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid #eccfd2;
+  border-radius: 7px;
+  color: #7d3842;
+  font-size: 13px;
+}
+.review-tree-confirm span {
+  margin-right: auto;
+}
+.review-tree-confirm .danger-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: #b55662;
+  color: #fff;
+  cursor: pointer;
+}
+.rotate-up {
+  transform: rotate(180deg);
+}
+.rotate-outdent {
+  transform: rotate(180deg);
+}
+@media (max-width: 560px) {
+  .review-tree-progress {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .review-tree-progress > [data-slot='progress'] {
+    flex-basis: 100%;
+    order: -1;
+  }
+  .review-tree-expand {
+    width: 100%;
+    margin-left: 0;
+  }
+  .review-tree-actions {
+    opacity: 1;
+  }
+  .review-tree-row {
+    padding-left: calc(min(var(--depth), 4) * 12px);
+  }
+}

@@ -83,6 +83,9 @@ export function parseCalendar(
         allDay: start.isDate,
         tags: [],
         location: (event.location || '').slice(0, 300),
+        // ical.js unfolds content lines and decodes RFC 5545 text escapes.
+        // Keep the same bound as user-authored notes before persisting the feed.
+        notes: (event.description || '').slice(0, 8000).trim(),
       });
       if (result.size > 2000) throw new Error('too many occurrences');
     };

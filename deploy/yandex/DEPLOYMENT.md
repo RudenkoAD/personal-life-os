@@ -29,3 +29,5 @@ Source D1 remains frozen as a recovery snapshot. The old Site is a compatibility
 Browser panel layout is local to each browser origin. Refresh the old tab and use **Открыть в Yandex Cloud** after its queue drains to transfer that layout. The technical `sslip.io` hostname can later be replaced by an owned domain; update Caddy, PUBLIC_BASE_URL, source migration destination and the Codex MCP URL together.
 
 Private local handoff files (not committed) live in `work/cloud-migration/`: `login.txt`, SSH key and pinned known_hosts, encrypted exports and their recipient private key. Codex credentials remain under its existing protected `mcp-secrets` path. Never add those files or runtime.env to an image or repository.
+
+SSH access updated on 2026-09-13: TCP/22 is allowed from `0.0.0.0/0` at the user's request; key authentication remains required. The previous two administration `/32` rules excluded the current connection source. Successful SSH after the rule change confirmed the cause of the timeout.

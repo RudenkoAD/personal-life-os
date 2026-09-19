@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { initialState, normalizeState, type LifeState } from '../lib/domain.ts';
 import { materializeRecurrences } from '../lib/recurrences.ts';
+import { materializeEventTasks } from '../lib/event-tasks.ts';
 export function rawDb() {
   if (!env.DB) throw new Error('Storage unavailable');
   return env.DB as D1Database;
@@ -34,7 +35,13 @@ export async function loadState(
 ): Promise<LifeState> {
   for (let attempt = 0; attempt < 4; attempt++) {
     const before = await readState(owner);
-    const after = materializeRecurrences(before, now);
+    const recurring = materializeRecurrences(before, now);
+    const after = materializeEventTasks(recurring, now);
+    // Both projections share one workspace CAS: a read may advance revision once
+    // even when recurrence and birthday materialization happen together.
+    if (after !== recurring && after.revision !== before.revision + 1) {
+      after.revision = before.revision + 1;
+    }
     if (after === before) return before;
     try {
       await saveState(owner, before.revision, after);

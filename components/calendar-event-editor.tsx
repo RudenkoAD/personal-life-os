@@ -45,12 +45,15 @@ import {
   type EventDraft as Draft,
 } from '@/lib/calendar-event-draft';
 import './calendar-events.css';
+import { EventAutomationEditor } from '@/components/event-automation-editor';
+import { EventLinks } from '@/components/linked-text';
 
 export type EventEditorTarget = {
   seriesId?: string;
   occurrenceDate?: string;
   date: string;
   time?: string;
+  durationMinutes?: number;
   allDay?: boolean;
   recurring?: boolean;
 };
@@ -126,8 +129,19 @@ function monthDays(date: string) {
 export function CalendarEventEditor({ state, target, act, close }: Props) {
   const formId = useId();
   const series = state.calendarSeries?.find((s) => s.id === target.seriesId);
+  const existingBirthday = series?.birthday;
+  const [eventType, setEventType] = useState<'event' | 'birthday'>(
+    existingBirthday ? 'birthday' : 'event',
+  );
+  const [birthdayName, setBirthdayName] = useState(
+    existingBirthday?.name ?? '',
+  );
+  const isBirthday = eventType === 'birthday';
   const isOccurrence = Boolean(
-    series && target.occurrenceDate && series.repeat.frequency !== 'none',
+    series &&
+    !existingBirthday &&
+    target.occurrenceDate &&
+    series.repeat.frequency !== 'none',
   );
   const [editScope, setEditScope] = useState<'occurrence' | 'series'>(
     isOccurrence ? 'occurrence' : 'series',
@@ -144,17 +158,36 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
           tags: [],
           startDate: target.date,
           startTime: target.time ?? '09:00',
-          durationMinutes: target.allDay ? 1440 : 60,
+          durationMinutes: target.allDay ? 1440 : (target.durationMinutes ?? 60),
           allDay: target.allDay ?? false,
         };
+  const initialFields = existingBirthday
+    ? {
+        ...baseFields('series'),
+        title: `День рождения ${existingBirthday.name}`,
+        allDay: true,
+        startTime: '00:00',
+        durationMinutes: 1440,
+      }
+    : !series && eventType === 'birthday'
+      ? {
+          ...baseFields('series'),
+          title: 'День рождения',
+          allDay: true,
+          startTime: '00:00',
+          durationMinutes: 1440,
+        }
+      : baseFields(isOccurrence ? 'occurrence' : 'series');
   const [original, setOriginal] = useState(() =>
     toDraft(
-      baseFields(isOccurrence ? 'occurrence' : 'series'),
-      series?.repeat ?? {
-        frequency: target.recurring ? 'weekly' : 'none',
-        interval: 1,
-        weekdays: [new Date(`${target.date}T12:00:00Z`).getUTCDay()],
-      },
+      initialFields,
+      existingBirthday
+        ? { frequency: 'yearly', interval: 1 }
+        : (series?.repeat ?? {
+            frequency: target.recurring ? 'weekly' : 'none',
+            interval: 1,
+            weekdays: [new Date(`${target.date}T12:00:00Z`).getUTCDay()],
+          }),
     ),
   );
   const [draft, setDraft] = useState(original);
@@ -204,17 +237,34 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
           patch,
         };
       else {
-        const repeat = validateRepeat(repeatValue(draft), fields.startDate);
+        const repeat = validateRepeat(
+          isBirthday
+            ? { frequency: 'yearly', interval: 1 }
+            : repeatValue(draft),
+          fields.startDate,
+        );
+        const birthday = isBirthday ? { name: birthdayName.trim() } : undefined;
+        if (
+          isBirthday &&
+          (!birthday || !birthday.name || birthday.name.length > 180)
+        )
+          throw new Error('Имя: от 1 до 180 символов');
         action = series
           ? {
               type: 'event.update',
               id: series.id,
               ...patch,
+              ...(birthday ? { birthday } : {}),
               ...(JSON.stringify(repeat) !== JSON.stringify(series.repeat)
                 ? { repeat }
                 : {}),
             }
-          : { type: 'event.create', ...fields, repeat };
+          : {
+              type: 'event.create',
+              ...fields,
+              repeat,
+              ...(birthday ? { birthday } : {}),
+            };
       }
       setSaving(true);
       if (await act(action)) close();
@@ -242,13 +292,20 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
     setSaving(false);
     setDeleting(false);
   };
-  const repeatDisabled = Boolean(series && editScope === 'occurrence');
+  const repeatDisabled =
+    isBirthday || Boolean(series && editScope === 'occurrence');
   return (
     <>
       <Sheet open onOpenChange={(open) => !open && close()}>
         <SheetContent className="event-editor-sheet">
           <SheetHeader>
-            <SheetTitle>{series ? 'Событие' : 'Новое событие'}</SheetTitle>
+            <SheetTitle>
+              {series
+                ? isBirthday
+                  ? 'День рождения'
+                  : 'Событие'
+                : 'Новое событие'}
+            </SheetTitle>
             <SheetDescription>
               {series && editScope === 'occurrence'
                 ? 'Один повтор · МСК'
@@ -275,35 +332,88 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
                 />
               </label>
             )}
-            <label className="event-field" htmlFor={formId + '-title'}>
-              Название
-              <Input
-                id={formId + '-title'}
-                required
-                maxLength={200}
-                value={draft.title}
-                onChange={(e) => set('title', e.target.value)}
-                placeholder="Собрание, день рождения…"
-              />
-            </label>
-            <label className="event-check" htmlFor={formId + '-all-day'}>
-              <Checkbox
-                id={formId + '-all-day'}
-                checked={draft.allDay}
-                onCheckedChange={(checked) =>
-                  setDraft((d) => ({
-                    ...d,
-                    allDay: checked === true,
-                    startTime: checked ? '00:00' : '09:00',
-                    endTime: checked ? '00:00' : '10:00',
-                  }))
-                }
-              />
-              Весь день
-            </label>
+            {!series && (
+              <label className="event-field" htmlFor={formId + '-type'}>
+                Тип
+                <Choice
+                  id={formId + '-type'}
+                  value={eventType}
+                  onChange={(value) => {
+                    const next = value as 'event' | 'birthday';
+                    setEventType(next);
+                    if (next === 'birthday')
+                      setDraft((d) => ({
+                        ...d,
+                        title: `День рождения ${birthdayName.trim()}`.trim(),
+                        allDay: true,
+                        startTime: '00:00',
+                        durationMinutes: 1440,
+                        endDate: d.startDate,
+                        endTime: '00:00',
+                        repeat: { frequency: 'yearly', interval: 1 },
+                        ending: 'never',
+                      }));
+                  }}
+                  label="Тип события"
+                  options={[
+                    { value: 'event', label: 'Событие' },
+                    { value: 'birthday', label: 'День рождения' },
+                  ]}
+                />
+              </label>
+            )}
+            {isBirthday ? (
+              <label
+                className="event-field"
+                htmlFor={formId + '-birthday-name'}
+              >
+                Имя
+                <Input
+                  id={formId + '-birthday-name'}
+                  required
+                  maxLength={180}
+                  value={birthdayName}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setBirthdayName(name);
+                    set('title', `День рождения ${name.trim()}`.trim());
+                  }}
+                  placeholder="Имя человека"
+                />
+              </label>
+            ) : (
+              <label className="event-field" htmlFor={formId + '-title'}>
+                Название
+                <Input
+                  id={formId + '-title'}
+                  required
+                  maxLength={200}
+                  value={draft.title}
+                  onChange={(e) => set('title', e.target.value)}
+                  placeholder="Собрание…"
+                />
+              </label>
+            )}
+            {!isBirthday && (
+              <label className="event-check" htmlFor={formId + '-all-day'}>
+                <Checkbox
+                  id={formId + '-all-day'}
+                  checked={draft.allDay}
+                  onCheckedChange={(checked) =>
+                    setDraft((d) => ({
+                      ...d,
+                      allDay: checked === true,
+                      startTime: checked ? '00:00' : '09:00',
+                      endTime: checked ? '00:00' : '10:00',
+                    }))
+                  }
+                />
+                Весь день
+              </label>
+            )}
             <div className="event-date-row">
               <label className="event-field" htmlFor={formId + '-start-date'}>
-                Начало
+                {isBirthday ? 'Дата' : 'Начало'}
                 <Input
                   id={formId + '-start-date'}
                   type="date"
@@ -331,14 +441,14 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
                   }}
                 />
               </label>
-              {!draft.allDay && (
+              {!draft.allDay && !isBirthday && (
                 <label className="event-field" htmlFor={formId + '-start-time'}>
                   Время
                   <Input
                     id={formId + '-start-time'}
                     type="time"
                     required
-                    step={900}
+                    step={60}
                     value={draft.startTime}
                     onChange={(e) => {
                       const time = e.target.value;
@@ -363,57 +473,61 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
                 </label>
               )}
             </div>
-            <div className="event-date-row">
-              <label className="event-field" htmlFor={formId + '-end-date'}>
-                Окончание
-                <Input
-                  id={formId + '-end-date'}
-                  type="date"
-                  required
-                  min={draft.startDate}
-                  max="2199-12-31"
-                  value={draft.endDate}
-                  onChange={(e) => set('endDate', e.target.value)}
-                />
-              </label>
-              {!draft.allDay && (
-                <label className="event-field" htmlFor={formId + '-end-time'}>
-                  Время
+            {!isBirthday && (
+              <div className="event-date-row">
+                <label className="event-field" htmlFor={formId + '-end-date'}>
+                  Окончание
                   <Input
-                    id={formId + '-end-time'}
-                    type="time"
+                    id={formId + '-end-date'}
+                    type="date"
                     required
-                    step={900}
-                    value={draft.endTime}
-                    onChange={(e) => set('endTime', e.target.value)}
+                    min={draft.startDate}
+                    max="2199-12-31"
+                    value={draft.endDate}
+                    onChange={(e) => set('endDate', e.target.value)}
                   />
                 </label>
-              )}
-            </div>
-            <label className="event-field" htmlFor={formId + '-repeat'}>
-              Повтор
-              <Choice
-                id={formId + '-repeat'}
-                disabled={repeatDisabled}
-                value={draft.repeat.frequency}
-                onChange={(frequency) =>
-                  setRepeat({
-                    frequency: frequency as EventRepeat['frequency'],
-                    weekdays: draft.repeat.weekdays ?? [
-                      new Date(draft.startDate + 'T12:00:00Z').getUTCDay(),
-                    ],
-                  })
-                }
-                label="Повтор события"
-                options={[
-                  { value: 'none', label: 'Не повторяется' },
-                  { value: 'daily', label: 'Каждый день' },
-                  { value: 'weekly', label: 'Каждую неделю' },
-                  { value: 'monthly', label: 'Каждый месяц' },
-                  { value: 'yearly', label: 'Каждый год' },
-                ]}
-              />
-            </label>
+                {!draft.allDay && !isBirthday && (
+                  <label className="event-field" htmlFor={formId + '-end-time'}>
+                    Время
+                    <Input
+                      id={formId + '-end-time'}
+                      type="time"
+                      required
+                      step={60}
+                      value={draft.endTime}
+                      onChange={(e) => set('endTime', e.target.value)}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
+            {!isBirthday && (
+              <label className="event-field" htmlFor={formId + '-repeat'}>
+                Повтор
+                <Choice
+                  id={formId + '-repeat'}
+                  disabled={repeatDisabled}
+                  value={draft.repeat.frequency}
+                  onChange={(frequency) =>
+                    setRepeat({
+                      frequency: frequency as EventRepeat['frequency'],
+                      weekdays: draft.repeat.weekdays ?? [
+                        new Date(draft.startDate + 'T12:00:00Z').getUTCDay(),
+                      ],
+                    })
+                  }
+                  label="Повтор события"
+                  options={[
+                    { value: 'none', label: 'Не повторяется' },
+                    { value: 'daily', label: 'Каждый день' },
+                    { value: 'weekly', label: 'Каждую неделю' },
+                    { value: 'monthly', label: 'Каждый месяц' },
+                    { value: 'yearly', label: 'Каждый год' },
+                  ]}
+                />
+              </label>
+            )}
             {draft.repeat.frequency !== 'none' && !repeatDisabled && (
               <fieldset className="event-repeat-settings">
                 <legend className="sr-only">Настройка повтора</legend>
@@ -555,6 +669,21 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
                 Чтобы изменить расписание, выберите всю серию.
               </p>
             )}
+            {series && (
+              <EventAutomationEditor
+                state={state}
+                target={
+                  editScope === 'occurrence' && target.occurrenceDate
+                    ? {
+                        kind: 'occurrence',
+                        id: series.id,
+                        occurrenceDate: target.occurrenceDate,
+                      }
+                    : { kind: 'series', id: series.id }
+                }
+                act={act}
+              />
+            )}
             <label className="event-field" htmlFor={formId + '-location'}>
               Место
               <Input
@@ -574,6 +703,7 @@ export function CalendarEventEditor({ state, target, act, close }: Props) {
                 onChange={(e) => set('notes', e.target.value)}
               />
             </label>
+            <EventLinks value={draft.notes} />
             <div className="event-scopes">
               {state.tags.map((tag) => (
                 <label className="event-check" key={tag.id}>

@@ -20,4 +20,8 @@ The daily timer creates a SQLite online backup and checks its integrity, with th
 
 To restore: stop the app, retain current database/WAL/SHM together, restore a verified backup and matching runtime.env, set database ownership to 1000:1000, and start the app. Never replace the database under a running process or reuse an old WAL with a restored file. Check authenticated state and calendar decryption before allowing writes.
 
-The public app port is reachable only through Caddy. SSH is restricted to the administration address and requires the deployment key. HTTPS authentication uses HttpOnly signed cookies and requires the configured Origin for cookie writes. Existing agent bearer tokens retain their original scopes.
+The public app port is reachable only through Caddy. SSH (TCP/22) is allowed from all IPv4 addresses, as requested on 2026-09-13, and requires the deployment key. HTTPS authentication uses HttpOnly signed cookies and requires the configured Origin for cookie writes. Existing agent bearer tokens retain their original scopes.
+
+## Android update files
+
+The Caddy container serves public Android update files from `/srv/personal-life-os/android`, mounted read-only at `/srv/android`. The route `/android/latest.json` contains release metadata; versioned APKs live below `/android/releases/<versionCode>/`. An administrator must create the directory and grant the dedicated deployment user write access (`android/`, `android/releases/`, and the staging/lock paths); the Caddy container remains read-only. The Android repository's `scripts/publish-update.sh --publish` performs local APK validation and atomically promotes a prepared tree over SSH. Keep the deployment key outside both repositories; never put it, the signing keystore, or runtime secrets into the image.

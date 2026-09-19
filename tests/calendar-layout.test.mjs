@@ -9,6 +9,9 @@ import {
   dropInterval,
   pointerTimestamp,
   TRACK_HEIGHT,
+  moscowNowPosition,
+  selectionInterval,
+  selectionIntervalFromTimestamps,
 } from '../lib/calendar-layout.ts';
 const day = '2026-09-08',
   zero = dayBounds(day).start,
@@ -20,6 +23,22 @@ const input = (id, from, to) => ({
   title: id,
   color: '#123456',
   card: true,
+});
+test('current time line uses Moscow date and pixel position', () => {
+  assert.deepEqual(moscowNowPosition(new Date('2026-09-08T20:30:00.000Z')), {
+    day: '2026-09-08',
+    minutes: 1410,
+    top: 1692,
+  });
+  assert.equal(
+    moscowNowPosition(new Date('2026-09-08T20:59:00.000Z')).day,
+    '2026-09-08',
+  );
+  assert.equal(
+    moscowNowPosition(new Date('2026-09-08T21:00:00.000Z')).day,
+    '2026-09-09',
+  );
+  assert.equal(moscowNowPosition(new Date('2026-09-08T21:00:00.000Z')).top, 0);
 });
 test('one proportional block per day, independent overlap group widths and midnight clipping', () => {
   const layout = buildDayLayout(day, [
@@ -118,6 +137,34 @@ test('pointer mapping follows scrolling and drops at23:45 rather than23:59 while
   assert.equal(interval.start, zero + 1425 * minute);
   assert.equal(interval.end - interval.start, 90 * minute);
   assert.equal(dropInterval(day, -100, 0).start, zero);
+});
+
+test('empty-track selection snaps forward and enforces a 15-minute minimum', () => {
+  const range = selectionInterval(day, 607, 652, 0, TRACK_HEIGHT);
+  assert.equal(range.start, zero + 8 * 60 * minute + 30 * minute);
+  assert.equal(range.end, zero + 9 * 60 * minute);
+  const minimum = selectionInterval(day, 100, 101, 0, TRACK_HEIGHT);
+  assert.equal(minimum.end - minimum.start, 15 * minute);
+});
+
+test('empty-track selection handles reverse drags and clamps outside midnight', () => {
+  const range = selectionInterval(day, 652, 607, 0, TRACK_HEIGHT);
+  assert.equal(range.start, zero + 8 * 60 * minute + 30 * minute);
+  assert.equal(range.end, zero + 9 * 60 * minute);
+  const late = selectionInterval(day, TRACK_HEIGHT + 300, TRACK_HEIGHT + 301, 0);
+  assert.equal(late.end, dayBounds(day).end);
+  assert.equal(late.end - late.start, 15 * minute);
+});
+
+test('selection anchor stays fixed while the scrolled endpoint follows track geometry', () => {
+  const anchor = pointerTimestamp(day, 100, -620);
+  const endAfterScroll = pointerTimestamp(day, 190, -692);
+  const range = selectionIntervalFromTimestamps(day, anchor, endAfterScroll);
+  assert.equal(range.start, zero + 600 * minute);
+  assert.equal(range.end, zero + 735 * minute);
+  const top = selectionInterval(day, 30, -200, 0);
+  assert.equal(top.start, zero);
+  assert.equal(top.end, zero + 30 * minute);
 });
 
 test('calendar body drop preserves grabbed position and snaps the real start to15 minutes', () => {

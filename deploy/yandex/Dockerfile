@@ -11,6 +11,8 @@ WORKDIR /app
 COPY --from=build /build/dist/standalone/ ./
 COPY --from=build /build/drizzle/ ./drizzle/
 COPY --from=build /build/server/start.mjs ./start.mjs
+COPY --from=build /build/server/event-task-worker.mjs ./server/event-task-worker.mjs
+COPY --from=build /build/lib/ ./lib/
 USER node
 EXPOSE 3000
 CMD ["node", "start.mjs"]

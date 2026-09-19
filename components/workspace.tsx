@@ -60,8 +60,13 @@ import {
   CalendarEventEditor,
   type EventEditorTarget,
 } from '@/components/calendar-event-editor';
+import {
+  EventAutomationEditor,
+  ReminderDefaultsSettings,
+} from '@/components/event-automation-editor';
 import { expandEventSeries } from '@/lib/calendar-events';
 import { CalendarGrid } from '@/components/calendar-grid';
+import { LinkedText } from '@/components/linked-text';
 import { useSyncedDraft } from '@/hooks/use-synced-draft';
 import { SyncQueue, type SyncSnapshot } from '@/lib/sync-queue';
 import { apiRequest, ApiError } from '@/lib/api-client';
@@ -101,6 +106,8 @@ import {
   ArrowRight,
   ChevronRight,
   ChevronLeft,
+  ArrowLeft,
+  ArrowRight as ArrowRightIcon,
   Check,
   Clock3,
   Circle,
@@ -122,7 +129,12 @@ import {
   LogOut,
   CalendarClock,
   FolderOpen,
+  Palette,
+  RotateCcw,
 } from 'lucide-react';
+import { ReviewPromptTree } from '@/components/review-prompt-tree';
+import './review-prompt-tree.css';
+import { reviewProgress } from '@/lib/review-tree';
 import {
   dateKey,
   type LifeState,
@@ -285,7 +297,8 @@ export default function Workspace({
   const [day, setDay] = useState(dateKey()),
     [calendarMode, setCalendarMode] = useState('day'),
     [dragged, setDragged] = useState<string | null>(null),
-    [dropTarget, setDropTarget] = useState<string | null>(null);
+    [dropTarget, setDropTarget] = useState<string | null>(null),
+    [draggedColumn, setDraggedColumn] = useState<string | null>(null);
   const queueRef = useRef<SyncQueue | null>(null);
   const [sync, setSync] = useState<SyncSnapshot>({
     state: null,
@@ -543,6 +556,7 @@ export default function Workspace({
   };
   const endDrag = () => {
     setDragged(null);
+    setDraggedColumn(null);
     setDropTarget(null);
   };
   const acceptDrop = (e: React.DragEvent, target: string) => {
@@ -557,6 +571,40 @@ export default function Workspace({
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDropTarget(target);
+  };
+  const moveColumn = (id: string, beforeId: string | null) => {
+    if (!board || id === beforeId) return;
+    void act(
+      { type: 'column.move', boardId: board.id, id, beforeId },
+      'Колонка перемещена',
+    );
+  };
+  const columnColors = [
+    '#8992e9',
+    '#dbb273',
+    '#88b39d',
+    '#d88989',
+    '#9a82c4',
+    '#5f9eb3',
+  ];
+  const dropColumn = (e: React.DragEvent, targetId: string) => {
+    if (!e.dataTransfer.types.includes('text/life-column')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = e.dataTransfer.getData('text/life-column');
+    const targetIndex =
+      board?.columns.findIndex((column) => column.id === targetId) ?? -1;
+    if (!id || !board || targetIndex < 0 || id === targetId) {
+      endDrag();
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const after = e.clientX >= rect.left + rect.width / 2;
+    const beforeId = after
+      ? (board.columns[targetIndex + 1]?.id ?? null)
+      : targetId;
+    endDrag();
+    moveColumn(id, beforeId);
   };
   const leaveDrop = (e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null))
@@ -933,62 +981,166 @@ export default function Workspace({
           </div>
         </div>
         <div className="board-grid">
-          {board.columns.map((col, i) => (
-            <section
-              className={`column ${dropTarget === col.id ? 'drop-active' : ''}`}
-              key={col.id}
-              aria-label={`Колонка «${col.title}»`}
-              onDragOver={(e) => acceptDrop(e, col.id)}
-              onDragLeave={leaveDrop}
-              onDrop={(e) => dropMove(e, col.id)}
-            >
-              <h2>
-                <span className={`status-dot tone-${i % 4}`} />
-                <button
-                  onClick={() =>
-                    setNewForm({
-                      kind: 'renameColumn',
-                      id: col.id,
-                      title: col.title,
-                    })
-                  }
+          {board.columns.map((col, i) => {
+            const colColor = col.color;
+            return (
+              <section
+                className={`column ${dropTarget === col.id ? 'drop-active' : ''} ${draggedColumn === col.id ? 'column-dragging' : ''}`}
+                key={col.id}
+                aria-label={`Колонка «${col.title}»`}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes('text/life-column')) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDropTarget(col.id);
+                  } else acceptDrop(e, col.id);
+                }}
+                onDragLeave={leaveDrop}
+                onDrop={(e) => {
+                  if (e.dataTransfer.types.includes('text/life-column'))
+                    dropColumn(e, col.id);
+                  else dropMove(e, col.id);
+                }}
+              >
+                <h2
+                  style={{
+                    background: colColor ? `${colColor}12` : undefined,
+                    borderTop: `2px solid ${colColor ?? 'transparent'}`,
+                  }}
                 >
-                  {col.title}
-                </button>
-                <span className="count">
-                  {
-                    visible.filter(
+                  <span
+                    className="status-dot"
+                    style={{ background: colColor ?? '#95a4c0' }}
+                  />
+                  <button
+                    draggable={!pending}
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      e.dataTransfer.setData('text/life-column', col.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggedColumn(col.id);
+                    }}
+                    onDragEnd={endDrag}
+                    onClick={() =>
+                      setNewForm({
+                        kind: 'renameColumn',
+                        id: col.id,
+                        title: col.title,
+                      })
+                    }
+                  >
+                    {col.title}
+                  </button>
+                  <span className="count">
+                    {
+                      visible.filter(
+                        (c) =>
+                          c.placement === 'board' &&
+                          c.boardId === board.id &&
+                          c.columnId === col.id,
+                      ).length
+                    }
+                  </span>
+                  <button
+                    className="column-plus"
+                    aria-label={`Добавить в ${col.title}`}
+                    onClick={() => openNew(col.id)}
+                  >
+                    <Plus size={15} />
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className="column-menu-trigger"
+                      aria-label={`Настроить колонку «${col.title}»`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Palette size={14} />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DropdownMenuLabel>Колонка</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        disabled={i === 0}
+                        onClick={() =>
+                          moveColumn(col.id, board.columns[i - 1]?.id ?? null)
+                        }
+                      >
+                        <ArrowLeft size={14} /> Влево
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={i === board.columns.length - 1}
+                        onClick={() => {
+                          const before = board.columns[i + 2]?.id ?? null;
+                          moveColumn(col.id, before);
+                        }}
+                      >
+                        <ArrowRightIcon size={14} /> Вправо
+                      </DropdownMenuItem>
+                      <DropdownMenuLabel>Цвет</DropdownMenuLabel>
+                      <fieldset
+                        className="column-palette"
+                        aria-label={`Цвет колонки «${col.title}»`}
+                      >
+                        {columnColors.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            className="column-color-swatch"
+                            style={{ background: color }}
+                            aria-label={`Выбрать цвет ${color}`}
+                            aria-pressed={colColor?.toLowerCase() === color}
+                            onClick={() =>
+                              void act(
+                                {
+                                  type: 'column.color',
+                                  boardId: board.id,
+                                  id: col.id,
+                                  color,
+                                },
+                                'Цвет колонки изменён',
+                              )
+                            }
+                          />
+                        ))}
+                      </fieldset>
+                      <DropdownMenuItem
+                        disabled={!colColor}
+                        onClick={() =>
+                          void act(
+                            {
+                              type: 'column.color',
+                              boardId: board.id,
+                              id: col.id,
+                              color: null,
+                            },
+                            'Цвет колонки сброшен',
+                          )
+                        }
+                      >
+                        <RotateCcw size={14} /> Сбросить цвет
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </h2>
+                <div className="column-cards">
+                  {visible
+                    .filter(
                       (c) =>
                         c.placement === 'board' &&
                         c.boardId === board.id &&
                         c.columnId === col.id,
-                    ).length
-                  }
-                </span>
-                <button
-                  className="column-plus"
-                  aria-label={`Добавить в ${col.title}`}
-                  onClick={() => openNew(col.id)}
-                >
-                  <Plus size={15} />
-                </button>
-              </h2>
-              <div className="column-cards">
-                {visible
-                  .filter(
-                    (c) =>
-                      c.placement === 'board' &&
-                      c.boardId === board.id &&
-                      c.columnId === col.id,
-                  )
-                  .map((c) => cardTile(c, true))}
-                <button className="add-card" onClick={() => openNew(col.id)}>
-                  <Plus size={16} />
-                  Добавить карточку
-                </button>
-              </div>
-            </section>
-          ))}
+                    )
+                    .map((c) => cardTile(c, true))}
+                  <button className="add-card" onClick={() => openNew(col.id)}>
+                    <Plus size={16} />
+                    Добавить карточку
+                  </button>
+                </div>
+              </section>
+            );
+          })}
         </div>
         {state.cards.length === 0 && (
           <div className="welcome-strip">
@@ -1128,7 +1280,9 @@ export default function Workspace({
               }
               onSelectCard={setSelected}
               onScheduleEvent={scheduleEvent}
-              onCreateEvent={(date, time) => setEventEditor({ date, time })}
+              onCreateEvent={(date, time, durationMinutes) =>
+                setEventEditor({ date, time, durationMinutes })
+              }
               onSelectEvent={openEvent}
               onDragCard={(id) => (id ? setDragged(id) : endDrag())}
             />
@@ -1682,11 +1836,7 @@ export default function Workspace({
                           review={r}
                           pending={pending}
                           act={act}
-                          addPrompt={() =>
-                            setNewForm({ kind: 'prompt', title: '', id: r.id })
-                          }
                           capturePrompt={(title) => {
-                            navigate('inbox');
                             setNewForm({
                               kind: 'card',
                               title: `Что сделать: ${title}`,
@@ -1749,6 +1899,7 @@ export default function Workspace({
                           Открыть архив
                         </button>
                       </section>
+                      <ReminderDefaultsSettings state={state} act={act} />
                       <ScopesSettings tags={state.tags} act={act} />
                       <section className="settings-card">
                         <div className="section-heading">
@@ -2023,16 +2174,31 @@ export default function Workspace({
                   : `${clock(selectedEvent.start)} — ${clock(selectedEvent.end)}`}
               </b>
               {selectedEvent.location && <p>{selectedEvent.location}</p>}
+              {selectedEvent.notes && (
+                <p className="event-description">
+                  <LinkedText value={selectedEvent.notes} />
+                </p>
+              )}
               <p className="muted">
                 Изменения вносятся в исходном календаре и появятся после
                 обновления подписки.
               </p>
+              {state && (
+                <EventAutomationEditor
+                  key={`external:${selectedEvent.id}`}
+                  state={state}
+                  target={{ kind: 'external', id: selectedEvent.id }}
+                  act={act}
+                  readOnly
+                />
+              )}
             </div>
           )}
         </SheetContent>
       </Sheet>
       {state && eventEditor && (
         <CalendarEventEditor
+          key={`${eventEditor.seriesId ?? ''}:${eventEditor.occurrenceDate ?? ''}`}
           state={state}
           target={eventEditor}
           act={act}
@@ -2281,6 +2447,14 @@ function CardDetails({
             </form>
           </section>
         )}
+        {card.placement === 'calendar' && (
+          <EventAutomationEditor
+            key={`card:${card.id}`}
+            state={state}
+            target={{ kind: 'card', id: card.id }}
+            act={act}
+          />
+        )}
         {!card.archived && (
           <section className="detail-section">
             <h3>
@@ -2401,18 +2575,16 @@ function ReviewPanel({
   review: r,
   pending,
   act,
-  addPrompt,
   capturePrompt,
 }: {
   review: Review;
   pending: boolean;
   act: (a: Action, s?: string) => Promise<boolean>;
-  addPrompt: () => void;
   capturePrompt: (title: string) => void;
 }) {
   const [notes, setNotes] = useSyncedDraft(r.notes),
     [interval, setIntervalValue] = useSyncedDraft(String(r.intervalDays));
-  const done = r.prompts.filter((p) => p.done).length;
+  const progress = reviewProgress(r.prompts);
   return (
     <section className="review-card">
       <div className="review-card-top">
@@ -2423,43 +2595,14 @@ function ReviewPanel({
             : prettyDate(r.nextDue + 'T12:00:00+03:00')}
         </span>
       </div>
-      <div className="review-progress">
-        <Progress
-          value={r.prompts.length ? (done / r.prompts.length) * 100 : 0}
-        />
-        <span>
-          {done} из {r.prompts.length}
-        </span>
-      </div>
-      <div className="review-prompts">
-        {r.prompts.map((p) => (
-          <div className="review-prompt" key={p.id}>
-            <Checkbox
-              checked={p.done}
-              aria-label={p.title}
-              disabled={pending}
-              onCheckedChange={() =>
-                void act(
-                  { type: 'review.prompt', id: r.id, promptId: p.id },
-                  'Пункт отмечен',
-                )
-              }
-            />
-            <span className={p.done ? 'strike' : ''}>{p.title}</span>
-            <button
-              className="icon-btn"
-              aria-label={`Создать дело: ${p.title}`}
-              onClick={() => capturePrompt(p.title)}
-            >
-              <Plus size={17} />
-            </button>
-          </div>
-        ))}
-      </div>
-      <button className="text-button" onClick={addPrompt}>
-        <Plus size={15} />
-        Добавить пункт
-      </button>
+      <ReviewPromptTree
+        review={r}
+        pending={pending}
+        act={act}
+        capturePrompt={(title, path) =>
+          capturePrompt(path?.join(' › ') ?? title)
+        }
+      />
       <details className="compact-help review-notes">
         <summary>Заметки{notes.trim() ? ' · есть текст' : ''}</summary>
         <label className="review-notes-field">
@@ -2503,7 +2646,9 @@ function ReviewPanel({
           </button>
           <button
             className="primary"
-            disabled={pending || !r.prompts.length || done !== r.prompts.length}
+            disabled={
+              pending || !progress.total || progress.done !== progress.total
+            }
             onClick={async () => {
               if (
                 await act({

@@ -52,6 +52,31 @@ test('weekly event create has validated defaults and deterministic mutation proj
   assert.deepEqual(replay.calendarSeries, state.calendarSeries);
 });
 
+test('event actions accept arbitrary whole-minute timed durations on create, update, and override', () => {
+  let state = act(initialState(), {
+    type: 'event.create',
+    title: 'Minute event',
+    startDate: '2026-09-14',
+    startTime: '10:01',
+    durationMinutes: 17,
+  });
+  const id = series(state).id;
+  assert.equal(series(state).durationMinutes, 17);
+  state = act(state, { type: 'event.update', id, durationMinutes: 10079 });
+  assert.equal(series(state).durationMinutes, 10079);
+  state = act(state, {
+    type: 'event.override',
+    id,
+    occurrenceDate: '2026-09-14',
+    patch: { durationMinutes: 1 },
+  });
+  assert.equal(series(state).exceptions['2026-09-14'].durationMinutes, 1);
+  assert.equal(
+    eventOnDate(series(state), '2026-09-14').end,
+    '2026-09-14T07:02:00.000Z',
+  );
+});
+
 test('occurrence override stores explicit inherited fields; later series edit preserves override', () => {
   let state = act(initialState(), {
     type: 'event.create',

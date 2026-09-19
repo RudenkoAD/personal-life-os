@@ -4,6 +4,61 @@
   min-height: 360px;
   overflow: hidden;
 }
+
+.event-automation {
+  margin-top: 12px;
+}
+.automation-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.automation-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line, #d8d8d8);
+  border-radius: 8px;
+}
+.automation-choice {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.automation-choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.automation-rule {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) 100px auto;
+  gap: 6px;
+  align-items: center;
+}
+.automation-rule input {
+  min-width: 0;
+}
+.automation-deadline {
+  display: grid;
+  grid-template-columns: auto 64px 84px;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+}
+.event-automation input[type='radio'],
+.event-automation input[type='checkbox'] {
+  width: auto;
+}
+@media (max-width: 560px) {
+  .automation-rule {
+    grid-template-columns: 1fr 1fr;
+  }
+  .automation-rule .icon-btn {
+    justify-self: start;
+  }
+}
 .workspace.compact-page {
   flex: 1;
   min-height: 0;

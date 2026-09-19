@@ -32,6 +32,34 @@ test('recurrence and EXDATE expansion', () => {
     ['2026-09-08T10:00:00.000Z', '2026-09-10T10:00:00.000Z'],
   );
 });
+test('LOCATION and folded escaped DESCRIPTION survive imported occurrences', () => {
+  const a = parseCalendar(
+    wrap(
+      event(
+        'LOCATION:Room 42\\, North\\; wing\r\n' +
+          'DESCRIPTION:First line\\nsecond line\\; details\\, more\r\n' +
+          ' folded continuation\r\n' +
+          'RRULE:FREQ=DAILY;COUNT=2',
+      ),
+    ),
+    'a',
+    now,
+  );
+  assert.equal(a.length, 2);
+  assert.deepEqual(
+    a.map((e) => ({ location: e.location, notes: e.notes })),
+    [
+      {
+        location: 'Room 42, North; wing',
+        notes: 'First line\nsecond line; details, morefolded continuation',
+      },
+      {
+        location: 'Room 42, North; wing',
+        notes: 'First line\nsecond line; details, morefolded continuation',
+      },
+    ],
+  );
+});
 test('moved recurrence exception replaces occurrence', () => {
   const moved = `BEGIN:VEVENT\r\nUID:event-1\r\nRECURRENCE-ID:20260909T100000Z\r\nDTSTART:20260909T120000Z\r\nDTEND:20260909T130000Z\r\nSUMMARY:Moved\r\nEND:VEVENT`;
   const a = parseCalendar(

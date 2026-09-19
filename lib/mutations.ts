@@ -4,6 +4,7 @@ import {
   type Action,
   type LifeState,
 } from './domain.ts';
+import { reviewPromptState } from './review-tree.ts';
 export type Mutation = { id: string; at: string; action: Action };
 export function validateMutation(value: unknown): Mutation {
   const m = value as Mutation;
@@ -61,10 +62,13 @@ export function prepareMutation(state: LifeState, action: Action): Mutation {
     if (step) a.done = !step.done;
   }
   if (a.type === 'review.prompt' && a.promptId && a.done === undefined) {
-    const prompt = state.reviews
-      .find((r) => r.id === a.id)
-      ?.prompts.find((p) => p.id === a.promptId);
-    if (prompt) a.done = !prompt.done;
+    const review = state.reviews.find((r) => r.id === a.id);
+    const prompt = review?.prompts.find((p) => p.id === a.promptId);
+    // Edits carry an explicit field and must not be turned into toggles.
+    if (review && prompt && a.title === undefined && a.parentId === undefined) {
+      const stateNow = reviewPromptState(review.prompts, a.promptId as string);
+      a.done = stateNow === true ? false : true;
+    }
   }
   if (a.type === 'source.toggle' && a.enabled === undefined) {
     const source = state.sources.find((s) => s.id === a.id);

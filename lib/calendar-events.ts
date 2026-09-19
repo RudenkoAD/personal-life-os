@@ -18,10 +18,14 @@ export type EventFields = {
   startTime: string;
   durationMinutes: number;
 };
+export type Birthday = { name: string };
 export type EventSeries = EventFields & {
   id: string;
   repeat: EventRepeat;
   exceptions: Record<string, Partial<EventFields> & { cancelled?: boolean }>;
+  birthday?: Birthday;
+  /** Server-owned idempotency ledger for generated gift tasks. */
+  birthdayGiftYears?: number[];
 };
 const DAY = 86400000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -86,14 +90,12 @@ export function validateEventFields(
     typeof duration !== 'number' ||
     !Number.isInteger(duration) ||
     duration > 10080 ||
-    (value.allDay
-      ? duration < 1440 || duration % 1440 !== 0
-      : duration < 15 || duration % 15 !== 0)
+    (value.allDay ? duration < 1440 || duration % 1440 !== 0 : duration < 1)
   )
     throw new Error(
       value.allDay
         ? 'Длительность: от 1 до 7 целых дней'
-        : 'Длительность: от 15 минут до 7 дней, шаг 15 минут',
+        : 'Длительность: от 1 минуты до 7 дней',
     );
   return {
     title: value.title.trim(),
@@ -252,7 +254,18 @@ function candidateDates(
           ? firstMatch + Math.floor((days - firstMatch) / 7) * 7
           : firstMatch + Math.floor((day - 1) / 7) * 7;
       }
-      if (d > days) continue;
+      if (d > days) {
+        if (
+          series.birthday &&
+          rule.frequency === 'yearly' &&
+          month === 2 &&
+          day === 29 &&
+          m === 2 &&
+          d === 29
+        )
+          d = 28;
+        else continue;
+      }
       const date = monthDate(y, m, d);
       if (rule.count && ++count > rule.count) break;
       emit(date);

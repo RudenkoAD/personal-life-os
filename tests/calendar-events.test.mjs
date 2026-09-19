@@ -192,12 +192,24 @@ test('multi-day overlap includes starts before the window and excludes exclusive
   assert.deepEqual(dates(s, '2026-09-08', '2026-09-09'), []);
 });
 
-test('validation normalizes recurrence controls and rejects invalid data and unbounded reads', () => {
+test('validation accepts arbitrary timed minutes while keeping all-day day bounds', () => {
   const fields = series('2026-09-08', { frequency: 'none', interval: 1 });
+  assert.equal(
+    validateEventFields({ ...fields, durationMinutes: 1 }).durationMinutes,
+    1,
+  );
+  assert.equal(
+    validateEventFields({ ...fields, durationMinutes: 10080 }).durationMinutes,
+    10080,
+  );
+  assert.equal(
+    validateEventFields({ ...fields, durationMinutes: 17 }).durationMinutes,
+    17,
+  );
   for (const patch of [
     { startDate: '2026-02-30' },
     { startTime: '25:00' },
-    { durationMinutes: 16 },
+    { durationMinutes: 0 },
     { allDay: true },
     { tags: ['missing'] },
     { notes: 'x'.repeat(8001) },
@@ -205,6 +217,25 @@ test('validation normalizes recurrence controls and rejects invalid data and unb
     { title: 'x'.repeat(201) },
   ])
     assert.throws(() => validateEventFields({ ...fields, ...patch }));
+  for (const durationMinutes of [1440, 10080])
+    assert.equal(
+      validateEventFields({
+        ...fields,
+        allDay: true,
+        startTime: '00:00',
+        durationMinutes,
+      }).durationMinutes,
+      durationMinutes,
+    );
+  for (const durationMinutes of [1, 1439, 10081])
+    assert.throws(() =>
+      validateEventFields({
+        ...fields,
+        allDay: true,
+        startTime: '00:00',
+        durationMinutes,
+      }),
+    );
   assert.deepEqual(
     validateRepeat(
       { frequency: 'monthly', interval: 2, weekdays: [1] },

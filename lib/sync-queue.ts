@@ -337,6 +337,8 @@ export class SyncQueue {
         a.columnId,
         a.stepId,
         a.promptId,
+        a.parentId,
+        a.beforeId,
         ...(Array.isArray(a.tags) ? a.tags : []),
       ];
       if (

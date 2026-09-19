@@ -93,6 +93,25 @@
   color: #bd3a4e;
   font-size: 12px;
 }
+.event-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.event-note-links a,
+.event-description a {
+  color: #5363bd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.event-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .event-editor-actions {
   display: flex;
   align-items: center;

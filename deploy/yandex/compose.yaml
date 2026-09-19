@@ -32,6 +32,7 @@ services:
       - '443:443'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/personal-life-os/android:/srv/android:ro
       - /srv/personal-life-os/caddy:/data
       - /srv/personal-life-os/caddy-config:/config
     depends_on:

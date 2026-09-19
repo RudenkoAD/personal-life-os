@@ -369,6 +369,62 @@ test('review completion carries notes atomically with its history entry', () => 
   assert.equal(next.reviews[0].intervalDays, 7);
   assert.equal(next.reviews[0].notes, '');
 });
+
+test('discarding a rejected review parent removes child and sibling-placement dependencies only', async () => {
+  const h = setup();
+  const id = h.server.reviews[0].id;
+  const existing = h.server.reviews[0].prompts[0].id;
+  let reject = true;
+  const send = h.deps.send;
+  h.deps.send = async (...args) => {
+    if (reject) throw new ApiError('rejected parent', 400, false, true);
+    return send(...args);
+  };
+  await h.queue.start();
+  try {
+    h.queue.enqueue({ type: 'review.prompt', id, title: 'Draft parent' });
+    const parentId = h.queue.snapshot().state.reviews[0].prompts.at(-1).id;
+    h.queue.enqueue({
+      type: 'review.prompt',
+      id,
+      title: 'Draft child',
+      parentId,
+    });
+    const childId = h.queue.snapshot().state.reviews[0].prompts.at(-1).id;
+    h.queue.enqueue({
+      type: 'review.prompt',
+      id,
+      promptId: childId,
+      title: 'Edited child',
+    });
+    h.queue.enqueue({
+      type: 'review.prompt.move',
+      id,
+      promptId: existing,
+      parentId: null,
+      beforeId: parentId,
+    });
+    h.queue.enqueue({ type: 'review.prompt', id, title: 'Independent prompt' });
+    await until(() => h.queue.snapshot().status === 'blocked');
+    assert.equal(h.queue.snapshot().discardCount, 4);
+    reject = false;
+    h.queue.discardRejected();
+    await until(() => h.queue.snapshot().status === 'saved');
+    assert.equal(
+      h.server.reviews[0].prompts.at(-1).title,
+      'Independent prompt',
+    );
+    assert.equal(
+      h.server.reviews[0].prompts.some(
+        (p) => p.id === parentId || p.id === childId,
+      ),
+      false,
+    );
+    assert.equal(h.server.reviews[0].prompts[0].id, existing);
+  } finally {
+    h.queue.stop();
+  }
+});
 test('background refresh rebases edits made during a slow read and then sends them', async () => {
   const h = setup();
   await h.queue.start();

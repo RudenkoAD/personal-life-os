@@ -119,6 +119,33 @@ test(
         state.cards.filter((c) => c.title === 'HTTP fixture').length,
         1,
       );
+      const board = state.boards.find((b) => b.id === 'main');
+      const lastColumn = board.columns.at(-1).id;
+      for (const action of [
+        {
+          type: 'column.color',
+          boardId: 'main',
+          id: lastColumn,
+          color: '#2E9B72',
+        },
+        {
+          type: 'column.move',
+          boardId: 'main',
+          id: lastColumn,
+          beforeId: board.columns[0].id,
+        },
+      ]) {
+        const result = await req(
+          '/api/actions',
+          'POST',
+          { revision: state.revision, action },
+          auth,
+        );
+        assert.equal(result.status, 200);
+        state = await result.json();
+      }
+      assert.equal(state.boards[0].columns[0].id, lastColumn);
+      assert.equal(state.boards[0].columns[0].color, '#2e9b72');
       const token = await (
         await req(
           '/api/tokens',

@@ -1,6 +1,16 @@
 import { reconcileRecurrenceWaits } from './recurrences.ts';
 import type { EventSeries } from './calendar-events.ts';
 import { applyCalendarEventAction } from './calendar-event-actions.ts';
+import { applyReminderAction, normalizeReminderSettings } from './reminders.ts';
+import { setEventTaskRules } from './event-tasks.ts';
+import {
+  buildReviewTree,
+  reviewDescendantIds,
+  reviewProgress,
+  reviewPromptState,
+  validateReviewPrompts,
+} from './review-tree.ts';
+import type { ReviewPrompt } from './review-tree.ts';
 export type CardType = 'task' | 'sequence' | 'project';
 export type Placement = 'inbox' | 'board' | 'calendar';
 export interface Step {
@@ -32,7 +42,7 @@ export interface Board {
   id: string;
   title: string;
   parentCardId?: string;
-  columns: { id: string; title: string }[];
+  columns: { id: string; title: string; color?: string }[];
 }
 export interface Scope {
   id: string;
@@ -42,7 +52,7 @@ export interface Scope {
 export interface Review {
   id: string;
   title: string;
-  prompts: Step[];
+  prompts: ReviewPrompt[];
   intervalDays: number;
   nextDue: string;
   notes: string;
@@ -96,6 +106,9 @@ export interface LifeState {
   sources: Source[];
   events: CalendarEvent[];
   history: { at: string; text: string; actor: string }[];
+  reminderSettings?: import('./reminders.ts').ReminderSettings;
+  eventTaskRules?: Record<string, import('./event-tasks.ts').EventTaskRule[]>;
+  eventTaskRuns?: Record<string, string>;
 }
 export type Action = { type: string; [key: string]: unknown };
 export class DomainError extends Error {
@@ -104,6 +117,32 @@ export class DomainError extends Error {
 const id = () => crypto.randomUUID();
 function fail(message: string): never {
   throw new DomainError(message);
+}
+function recomputeReviewDone(review: Review) {
+  const children = new Map<string, ReviewPrompt[]>();
+  for (const prompt of review.prompts) {
+    const key = prompt.parentId ?? '';
+    (children.get(key) ?? (children.set(key, []), children.get(key)!)).push(
+      prompt,
+    );
+  }
+  const visit = (prompt: ReviewPrompt): boolean => {
+    const nested = children.get(prompt.id) ?? [];
+    if (!nested.length) return prompt.done;
+    prompt.done = nested.every(visit);
+    return prompt.done;
+  };
+  for (const prompt of children.get('') ?? []) visit(prompt);
+}
+function canonicalReviewOrder(review: Review) {
+  if (!review.prompts.some((prompt) => prompt.parentId != null)) return;
+  const ordered: ReviewPrompt[] = [];
+  const visit = (node: ReturnType<typeof buildReviewTree>[number]) => {
+    ordered.push(node.prompt);
+    node.children.forEach(visit);
+  };
+  buildReviewTree(review.prompts).forEach(visit);
+  review.prompts = ordered;
 }
 export function textValue(value: unknown, label: string, max = 200): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max)
@@ -190,6 +229,9 @@ export function initialState(now = new Date()): LifeState {
     calendarSeries: [],
     events: [],
     history: [],
+    reminderSettings: { defaultMinutes: [], byTag: {}, overrides: {} },
+    eventTaskRules: {},
+    eventTaskRuns: {},
   };
 }
 // Older workspaces gain defaults on read; the next normal write persists them.
@@ -198,6 +240,9 @@ export function normalizeState(state: LifeState): LifeState {
   state.calendarSeries ??= [];
   state.settings ??= { autoArchiveCompleted: true };
   state.settings.autoArchiveCompleted ??= true;
+  normalizeReminderSettings(state);
+  state.eventTaskRules ??= {};
+  state.eventTaskRuns ??= {};
   for (const card of state.cards)
     card.archived ??= card.done && state.settings.autoArchiveCompleted;
   return state;
@@ -283,6 +328,21 @@ export function applyAction(
   let message = 'Обновлено';
   if (!a || typeof a.type !== 'string') fail('Неизвестное действие');
   switch (a.type) {
+    case 'reminders.defaults':
+    case 'reminders.set':
+      try {
+        message = applyReminderAction(s, a);
+      } catch (error) {
+        fail((error as Error).message);
+      }
+      break;
+    case 'event.tasks.set':
+      try {
+        message = setEventTaskRules(s, a, nowDate);
+      } catch (error) {
+        fail((error as Error).message);
+      }
+      break;
     case 'capture':
     case 'create': {
       const c = addCard(s, a, now, makeId);
@@ -448,6 +508,41 @@ export function applyAction(
       message = 'Колонка переименована';
       break;
     }
+    case 'column.move': {
+      const b = boardOf(s, a.boardId);
+      const col =
+        b.columns.find((c) => c.id === a.id) ?? fail('Колонка не найдена');
+      if (
+        a.beforeId !== null &&
+        (typeof a.beforeId !== 'string' ||
+          !b.columns.some((c) => c.id === a.beforeId))
+      )
+        fail('Целевая колонка не найдена');
+      if (a.beforeId !== col.id) {
+        const rest = b.columns.filter((c) => c.id !== col.id);
+        rest.splice(
+          a.beforeId === null
+            ? rest.length
+            : rest.findIndex((c) => c.id === a.beforeId),
+          0,
+          col,
+        );
+        b.columns = rest;
+      }
+      message = 'Изменён порядок колонок';
+      break;
+    }
+    case 'column.color': {
+      const b = boardOf(s, a.boardId);
+      const col =
+        b.columns.find((c) => c.id === a.id) ?? fail('Колонка не найдена');
+      if (a.color === null) delete col.color;
+      else if (typeof a.color === 'string' && /^#[0-9a-f]{6}$/i.test(a.color))
+        col.color = a.color.toLowerCase();
+      else fail('Цвет должен быть в формате #RRGGBB');
+      message = 'Изменён цвет колонки';
+      break;
+    }
     case 'tag.create': {
       const title = textValue(a.title, 'Название тега', 40);
       if (s.tags.some((t) => t.title.toLowerCase() === title.toLowerCase()))
@@ -505,7 +600,7 @@ export function applyAction(
     case 'event.restore':
     case 'event.delete': {
       try {
-        message = applyCalendarEventAction(s, a, makeId);
+        message = applyCalendarEventAction(s, a, makeId, nowDate);
       } catch (error) {
         fail((error as Error).message);
       }
@@ -571,10 +666,39 @@ export function applyAction(
       break;
     }
     case 'review.create': {
+      const prompts: ReviewPrompt[] = [];
+      const addPrompts = (
+        items: unknown,
+        parentId: string | null = null,
+        depth = 0,
+      ) => {
+        if (!Array.isArray(items)) fail('Пункты обзора должны быть списком');
+        if (depth > 32) fail('Слишком глубокая вложенность пунктов');
+        for (const item of items) {
+          if (!item || typeof item !== 'object')
+            fail('Некорректный пункт обзора');
+          const value = item as Record<string, unknown>;
+          const promptId = makeId();
+          prompts.push({
+            id: promptId,
+            title: textValue(value.title, 'Пункт'),
+            done: false,
+            parentId,
+          });
+          if (value.children !== undefined)
+            addPrompts(value.children, promptId, depth + 1);
+        }
+      };
+      if (a.prompts !== undefined) addPrompts(a.prompts);
+      try {
+        validateReviewPrompts(prompts);
+      } catch (error) {
+        fail((error as Error).message);
+      }
       s.reviews.push({
         id: makeId(),
         title: textValue(a.title, 'Название обзора'),
-        prompts: [],
+        prompts,
         intervalDays: 30,
         nextDue: dateKey(nowDate),
         notes: '',
@@ -597,6 +721,60 @@ export function applyAction(
       }
       if (a.title !== undefined)
         r.title = textValue(a.title, 'Название обзора');
+      if (a.nestBySeparator !== undefined) {
+        if (typeof a.nestBySeparator !== 'string' || !a.nestBySeparator)
+          fail('Укажите разделитель вложенности');
+        if (
+          r.prompts.some((p) => p.parentId !== undefined && p.parentId !== null)
+        ) {
+          message = 'Обзор сохранён';
+          break;
+        }
+        const separator = a.nestBySeparator;
+        const converted: ReviewPrompt[] = [];
+        const parents = new Map<string, string>();
+        const sourcePaths = new Set(r.prompts.map((p) => p.title.trim()));
+        for (const prompt of r.prompts) {
+          const parts = prompt.title
+            .split(separator)
+            .map((x) => x.trim())
+            .filter(Boolean);
+          if (parts.length < 2) {
+            converted.push({ ...prompt, parentId: null });
+            continue;
+          }
+          for (let i = 1; i < parts.length; i++) {
+            const prefix = parts.slice(0, i).join(separator);
+            if (sourcePaths.has(prefix))
+              fail('Неоднозначная вложенность пунктов обзора');
+          }
+          let parentId: string | null = null;
+          let path = '';
+          for (const part of parts.slice(0, -1)) {
+            path = path ? `${path}${separator}${part}` : part;
+            let generated = parents.get(path);
+            if (!generated) {
+              generated = makeId();
+              parents.set(path, generated);
+              converted.push({
+                id: generated,
+                title: part,
+                done: false,
+                parentId,
+              });
+            }
+            parentId = generated;
+          }
+          converted.push({ ...prompt, title: parts.at(-1)!, parentId });
+        }
+        try {
+          validateReviewPrompts(converted);
+        } catch (error) {
+          fail((error as Error).message);
+        }
+        r.prompts = converted;
+        recomputeReviewDone(r);
+      }
       message = 'Обзор сохранён';
       break;
     }
@@ -605,19 +783,129 @@ export function applyAction(
       if (a.promptId) {
         const p =
           r.prompts.find((x) => x.id === a.promptId) ?? fail('Пункт не найден');
-        p.done = typeof a.done === 'boolean' ? a.done : !p.done;
+        if (a.title !== undefined) p.title = textValue(a.title, 'Пункт');
+        if (a.parentId !== undefined) {
+          if (
+            a.parentId !== null &&
+            (typeof a.parentId !== 'string' ||
+              !r.prompts.some((x) => x.id === a.parentId))
+          )
+            fail('Родительский пункт не найден');
+          if (
+            a.parentId === p.id ||
+            (a.parentId && reviewDescendantIds(r.prompts, p.id).has(a.parentId))
+          )
+            fail('Нельзя создать цикл в пунктах обзора');
+          p.parentId = a.parentId as string | null;
+        }
+        if (typeof a.done === 'boolean')
+          for (const id of reviewDescendantIds(r.prompts, p.id))
+            r.prompts.find((x) => x.id === id)!.done = a.done;
+        else if (a.title === undefined && a.parentId === undefined) {
+          const desired = reviewPromptState(r.prompts, p.id) !== true;
+          for (const id of reviewDescendantIds(r.prompts, p.id))
+            r.prompts.find((x) => x.id === id)!.done = desired;
+        }
       } else
         r.prompts.push({
           id: makeId(),
           title: textValue(a.title, 'Пункт'),
           done: false,
+          parentId:
+            a.parentId === undefined ? null : (a.parentId as string | null),
         });
+      try {
+        validateReviewPrompts(r.prompts);
+      } catch (error) {
+        fail((error as Error).message);
+      }
+      recomputeReviewDone(r);
       message = 'Обновлён пункт обзора';
+      break;
+    }
+    case 'review.prompt.move': {
+      const r = s.reviews.find((x) => x.id === a.id) ?? fail('Обзор не найден');
+      const p =
+        r.prompts.find((x) => x.id === a.promptId) ?? fail('Пункт не найден');
+      const parentId = a.parentId;
+      if (parentId !== null && typeof parentId !== 'string')
+        fail('Родительский пункт не найден');
+      if (parentId !== null && !r.prompts.some((x) => x.id === parentId))
+        fail('Родительский пункт не найден');
+      const descendants = reviewDescendantIds(r.prompts, p.id);
+      if (parentId && descendants.has(parentId))
+        fail('Нельзя создать цикл в пунктах обзора');
+      if (
+        a.beforeId !== undefined &&
+        a.beforeId !== null &&
+        !r.prompts.some((x) => x.id === a.beforeId)
+      )
+        fail('Целевой пункт не найден');
+      const beforeId = a.beforeId as string | null | undefined;
+      if (beforeId && descendants.has(beforeId))
+        fail('Целевой пункт не найден');
+      if (
+        beforeId &&
+        (r.prompts.find((x) => x.id === beforeId)!.parentId ?? null) !==
+          parentId
+      )
+        fail('Целевой пункт должен быть соседом');
+      const children = new Map<string, ReviewPrompt[]>();
+      for (const item of r.prompts) {
+        const key = item.parentId ?? '';
+        const list = children.get(key) ?? [];
+        list.push(item);
+        children.set(key, list);
+      }
+      const moving: ReviewPrompt[] = [];
+      const collect = (item: ReviewPrompt) => {
+        moving.push(item);
+        for (const child of children.get(item.id) ?? []) collect(child);
+      };
+      collect(p);
+      const rest = r.prompts.filter((x) => !descendants.has(x.id));
+      p.parentId = parentId as string | null;
+      let index =
+        beforeId == null
+          ? rest.length
+          : rest.findIndex((x) => x.id === beforeId);
+      if (index < 0) {
+        const target = rest.filter((x) => (x.parentId ?? null) === parentId);
+        const last = target.at(-1);
+        index = last
+          ? rest.findIndex((x) => x.id === last.id) + 1
+          : rest.length;
+        if (last) {
+          const lastTree = reviewDescendantIds(rest, last.id);
+          while (index < rest.length && lastTree.has(rest[index].id)) index++;
+        }
+      }
+      rest.splice(index, 0, ...moving);
+      r.prompts = rest;
+      canonicalReviewOrder(r);
+      try {
+        validateReviewPrompts(r.prompts);
+      } catch (error) {
+        fail((error as Error).message);
+      }
+      recomputeReviewDone(r);
+      message = 'Изменён порядок пунктов обзора';
+      break;
+    }
+    case 'review.prompt.delete': {
+      const r = s.reviews.find((x) => x.id === a.id) ?? fail('Обзор не найден');
+      const ids = reviewDescendantIds(r.prompts, a.promptId as string);
+      r.prompts = r.prompts.filter((x) => !ids.has(x.id));
+      recomputeReviewDone(r);
+      message = 'Удалён пункт обзора';
       break;
     }
     case 'review.finish': {
       const r = s.reviews.find((x) => x.id === a.id) ?? fail('Обзор не найден');
-      if (!r.prompts.length || r.prompts.some((x) => !x.done))
+      if (
+        !r.prompts.length ||
+        reviewProgress(r.prompts).done !== reviewProgress(r.prompts).total
+      )
         fail('Сначала пройдите все пункты обзора');
       if (a.notes !== undefined) r.notes = optionalText(a.notes);
       if (a.intervalDays !== undefined) {
