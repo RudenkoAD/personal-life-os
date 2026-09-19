@@ -71,6 +71,8 @@ for (const table of Object.keys(columns)) {
   if (snapshot.tables[table].some((row) => row.owner_id !== snapshot.ownerId))
     throw new Error('Mixed owners in snapshot');
 }
+if (snapshot.tables.agent_tokens.some(row => row.user_id != null && row.user_id !== snapshot.ownerId))
+  throw new Error('Legacy transfer cannot import shared-space tokens');
 const workspace = snapshot.tables.workspaces[0];
 const state = JSON.parse(workspace.data);
 if (state.revision !== workspace.revision) throw new Error('Revision mismatch');
@@ -111,6 +113,11 @@ try {
     )
       throw new Error('Import count mismatch');
   }
+  // v1 snapshots predate accounts/spaces. Keep the original storage/encryption IDs.
+  db.prepare("INSERT INTO users (id, login, name) VALUES (?, 'owner', 'Я')").run(snapshot.ownerId);
+  db.prepare("INSERT INTO spaces (id, name, kind, created_by) VALUES (?, 'Личное', 'private', ?)").run(snapshot.ownerId, snapshot.ownerId);
+  db.prepare("INSERT INTO space_members (space_id, user_id, role) VALUES (?, ?, 'owner')").run(snapshot.ownerId, snapshot.ownerId);
+  db.prepare('UPDATE agent_tokens SET user_id = owner_id WHERE user_id IS NULL').run();
   db.exec('COMMIT');
 } catch (error) {
   db.exec('ROLLBACK');

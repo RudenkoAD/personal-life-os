@@ -72,6 +72,7 @@ export async function apiRequest<T>(
   path: string,
   payload?: Record<string, unknown>,
   timeoutMs = 60000,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   const response = await fetch(path, {
     method: payload ? 'POST' : 'GET',
@@ -81,6 +82,7 @@ export async function apiRequest<T>(
     signal: AbortSignal.timeout(timeoutMs),
     headers: {
       Accept: 'application/json',
+      ...extraHeaders,
       ...(payload ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(payload ? { body: JSON.stringify(payload) } : {}),

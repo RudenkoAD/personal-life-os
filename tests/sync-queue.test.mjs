@@ -497,3 +497,26 @@ test('fixed series and occurrence edits remain interactive while acknowledgement
   assert.deepEqual(h.stored, []);
   h.queue.stop();
 });
+
+test('revoked membership clears displayed state on refresh and stops further optimistic edits', async () => {
+  const s = setup();
+  await s.queue.start();
+  assert.ok(s.queue.snapshot().state);
+  s.deps.load = async () => { throw new ApiError('No access', 403, false, true); };
+  await s.queue.refresh();
+  assert.equal(s.queue.snapshot().state, null);
+  assert.equal(s.queue.snapshot().status, 'blocked');
+  assert.equal(s.queue.enqueue({ type: 'capture', title: 'Must not enter another space' }), false);
+  s.queue.stop();
+});
+
+test('access lost during send hides state but preserves the original space outbox', async () => {
+  const s = setup({ send: async () => { throw new ApiError('No access', 403, false, true); } });
+  await s.queue.start();
+  s.queue.enqueue({ type: 'capture', title: 'Recoverable draft' });
+  await until(() => s.queue.snapshot().status === 'blocked');
+  assert.equal(s.queue.snapshot().state, null);
+  assert.equal(s.stored.length, 1);
+  assert.equal(s.stored[0].action.title, 'Recoverable draft');
+  s.queue.stop();
+});

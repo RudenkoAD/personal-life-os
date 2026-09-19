@@ -29,6 +29,13 @@ export async function POST(request: Request) {
     const user = await identity(request, true);
     if (user.owner !== config.MIGRATION_OWNER_ID)
       return json({ error: 'Нет доступа' }, 403);
+    // The legacy transfer format only represents one private account. Full SQLite
+    // backups are the recovery path once accounts or shared spaces are added.
+    const multiAccount = await rawDb().prepare(
+      "SELECT 1 AS found WHERE (SELECT COUNT(*) FROM users) > 1 OR EXISTS (SELECT 1 FROM spaces WHERE kind = 'shared')",
+    ).first();
+    if (multiAccount)
+      return json({ error: 'Для нескольких аккаунтов используйте полную резервную копию SQLite.' }, 409);
     const input = await body(request, 2048);
     const publicKey = input.publicKey;
     if (

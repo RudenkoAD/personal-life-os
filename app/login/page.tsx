@@ -24,6 +24,16 @@ export default async function Login({
         <h1>Personal Life OS</h1>
         <input type="hidden" name="return_to" value={target} />
         <label>
+          Логин
+          <input
+            name="login"
+            autoComplete="username"
+            maxLength={180}
+            placeholder="owner"
+            autoFocus
+          />
+        </label>
+        <label>
           Пароль
           <input
             type="password"
@@ -31,14 +41,13 @@ export default async function Login({
             autoComplete="current-password"
             required
             maxLength={1024}
-            autoFocus
           />
         </label>
         {params.error && (
           <p role="alert" className="form-error">
             {params.error === 'limit'
               ? 'Слишком много попыток. Попробуйте через 10 минут.'
-              : 'Не удалось войти. Проверьте пароль.'}
+              : 'Не удалось войти. Проверьте логин и пароль.'}
           </p>
         )}
         <button type="submit" className="primary">

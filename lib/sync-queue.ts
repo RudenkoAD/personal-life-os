@@ -184,6 +184,12 @@ export class SyncQueue {
       error instanceof Error
         ? error.message
         : 'Не удалось синхронизировать изменения';
+    if (error instanceof ApiError && [401, 403].includes(error.status)) {
+      // Keep the account/space outbox for recovery, but hide data after access is lost.
+      this.base = null;
+      this.view = null;
+      canDiscard = false;
+    }
     this.canDiscard = canDiscard;
     this.needsSignIn = error instanceof ApiError && error.needsSignIn;
     this.emit();
@@ -231,6 +237,10 @@ export class SyncQueue {
             this.jobs.shift();
             job.resolve(false);
             this.deps.remoteError(e);
+            if (e instanceof ApiError && [401, 403].includes(e.status)) {
+              this.block(e, false);
+              break;
+            }
             // Remote imports contain credentials and are never persisted or replayed.
             try {
               await this.reconcile();
@@ -299,7 +309,8 @@ export class SyncQueue {
       await this.reconcile();
     } catch (e) {
       // Background reads may fail offline. Local edits remain available.
-      if (e instanceof ApiError && e.needsSignIn) this.block(e, false);
+      if (e instanceof ApiError && (e.needsSignIn || e.status === 403))
+        this.block(e, false);
     } finally {
       this.working = false;
     }

@@ -53,7 +53,11 @@ export function startEventTaskWorker({ path, owner, intervalMs = 60000 }) {
           .get()
       )
         return;
-      tickEventTasks(database, owner);
+      // Each aggregate has an independent CAS, including shared spaces.
+      const owners = owner
+        ? [{ owner_id: owner }]
+        : database.prepare('SELECT owner_id FROM workspaces').all();
+      for (const row of owners) tickEventTasks(database, row.owner_id);
       if (failed) console.info('Event task scheduler recovered');
       failed = false;
     } catch {

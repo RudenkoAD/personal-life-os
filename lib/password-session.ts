@@ -105,6 +105,72 @@ export async function createSession(
   );
   return `${value}.${encode(new Uint8Array(signature))}`;
 }
+
+export async function createUserSession(
+  userId: string,
+  secret: string,
+  now = Date.now(),
+) {
+  if (!userId) throw new Error('An imported user is required');
+  const value = `v2.${now + lifetime}.${crypto.randomUUID()}`;
+  const payload = `${value}\n${userId}`;
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    await signingKey(secret),
+    encoder.encode(payload),
+  );
+  return `${value}.${encode(encoder.encode(userId))}.${encode(new Uint8Array(signature))}`;
+}
+
+function cookieFromHeader(cookieHeader: string | null) {
+  return (
+    cookieHeader
+      ?.split(';')
+      .map((s) => s.trim())
+      .find((s) => s.startsWith(sessionCookie + '='))
+      ?.slice(sessionCookie.length + 1) ?? null
+  );
+}
+
+export async function readSessionUser(
+  cookieHeader: string | null,
+  secret: string,
+  bootstrapUserId = '',
+  now = Date.now(),
+): Promise<string | null> {
+  if (!secret) return null;
+  try {
+    const cookie = cookieFromHeader(cookieHeader);
+    if (!cookie || cookie.length > 512) return null;
+    const parts = cookie.split('.');
+    if (parts[0] === 'v2') {
+      const [, expiry, nonce, encodedUser, signature, extra] = parts;
+      if (
+        extra !== undefined ||
+        !/^\d{13}$/.test(expiry) ||
+        Number(expiry) <= now ||
+        Number(expiry) > now + lifetime ||
+        !/^[a-f0-9-]{36}$/.test(nonce)
+      )
+        return null;
+      const userId = new TextDecoder().decode(decode(encodedUser));
+      if (!userId || userId.length > 200) return null;
+      const ok = await crypto.subtle.verify(
+        'HMAC',
+        await signingKey(secret),
+        decode(signature),
+        encoder.encode(`v2.${expiry}.${nonce}\n${userId}`),
+      );
+      return ok ? userId : null;
+    }
+    if (parts[0] !== 'v1' || !bootstrapUserId) return null;
+    return (await validSession(cookieHeader, bootstrapUserId, secret, now))
+      ? bootstrapUserId
+      : null;
+  } catch {
+    return null;
+  }
+}
 export async function validSession(
   cookieHeader: string | null,
   owner: string,

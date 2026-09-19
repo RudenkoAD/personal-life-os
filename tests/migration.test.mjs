@@ -169,7 +169,9 @@ test('encrypted migration preserves exact rows, rejects corruption and cannot ov
           .prepare(`SELECT * FROM ${table}`)
           .all()
           .map((row) => ({ ...row })),
-        tables[table],
+        table === 'agent_tokens'
+          ? tables[table].map((row) => ({ ...row, user_id: row.owner_id }))
+          : tables[table],
       );
     db.close();
     assert.equal(statSync(dbPath).mode & 0o777, 0o600);

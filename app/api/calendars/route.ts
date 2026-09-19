@@ -177,7 +177,7 @@ export async function POST(request: Request) {
     delete source.error;
     if (!a.sourceId) state.sources.push(source);
     state.revision++;
-    await saveState(user.owner, state.revision - 1, state, change);
+    await saveState(user.owner, state.revision - 1, state, change, undefined, user.access);
     return json(state);
   } catch (e) {
     return errorResponse(e);

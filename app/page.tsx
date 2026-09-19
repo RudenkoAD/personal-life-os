@@ -1,11 +1,11 @@
-import Workspace from '@/components/workspace';
+import SpaceShell from '@/components/space-shell';
 import { requireChatGPTUser } from './chatgpt-auth';
 import { runtime, usesPasswordAuth } from '@/lib/runtime-config';
 export const dynamic = 'force-dynamic';
 async function AuthenticatedWorkspace({ capture }: { capture: boolean }) {
   const user = await requireChatGPTUser(capture ? '/?capture=1' : '/');
   return (
-    <Workspace
+    <SpaceShell
       key={user.userId}
       ownerId={user.userId}
       passwordAuth={usesPasswordAuth()}

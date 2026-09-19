@@ -52,6 +52,7 @@ export async function POST(request: Request) {
           ? { kind: 'delete', id: action.id }
           : undefined,
         mutation ? { id: mutation.id, hash: hash! } : undefined,
+        user.access,
       );
     } catch (e) {
       const raced = await replay();

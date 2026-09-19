@@ -1,0 +1,4 @@
+.join-page { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
+.join-card { width: min(100%, 420px); padding: 20px; }
+.join-card h1 { margin: 0 0 8px; font-size: 20px; }
+.join-status { min-height: 24px; margin: 12px 0; }

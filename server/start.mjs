@@ -27,5 +27,4 @@ await import('./server.js');
 const { startEventTaskWorker } = await import('./server/event-task-worker.mjs');
 startEventTaskWorker({
   path: process.env.DATABASE_PATH,
-  owner: process.env.AUTH_OWNER_ID,
 });

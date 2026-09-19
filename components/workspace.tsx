@@ -253,10 +253,18 @@ function EmptyState({
 }
 export default function Workspace({
   ownerId,
+  spaceId = ownerId,
+  spaceControls,
+  onBusyChange,
+  onAccessRevoked,
   passwordAuth = false,
   migrationDestination,
 }: {
   ownerId: string;
+  spaceId?: string;
+  spaceControls?: React.ReactNode;
+  onBusyChange?: (busy: boolean) => void;
+  onAccessRevoked?: () => void;
   passwordAuth?: boolean;
   migrationDestination?: string;
 }) {
@@ -312,7 +320,19 @@ export default function Workspace({
     discardCount: 0,
   });
   const pending = !state;
-  const update = useCallback((data: LifeState) => {
+  const scopedHeaders = useMemo(() => ({ 'X-Life-Space': spaceId, 'X-Life-Account': ownerId }), [spaceId, ownerId]);
+  const scopedApiRequest = useCallback(
+    async <T,>(path: string, payload?: Record<string, unknown>, timeoutMs = 60000) => {
+      try { return await apiRequest<T>(path, payload, timeoutMs, scopedHeaders); }
+      catch (error) {
+        if (error instanceof ApiError && [401, 403].includes(error.status))
+          onAccessRevoked?.();
+        throw error;
+      }
+    },
+    [scopedHeaders, onAccessRevoked],
+  );
+  const update = useCallback((data: LifeState | null) => {
     stateRef.current = data;
     setState(data);
   }, []);
@@ -320,15 +340,17 @@ export default function Workspace({
     await queueRef.current?.retry();
   }, []);
   useEffect(() => {
-    const storageKey = `life-os-outbox-v1:${ownerId}`;
+    const storageKey = spaceId === ownerId
+      ? `life-os-outbox-v1:${ownerId}`
+      : `life-os-outbox-v1:${ownerId}:${spaceId}`;
     const queue = new SyncQueue({
       load: (ids) =>
-        apiRequest<{ state: LifeState; applied: string[] }>(
+        scopedApiRequest<{ state: LifeState; applied: string[] }>(
           `/api/state?mutations=${encodeURIComponent(ids.join(','))}`,
         ),
       send: (revision, mutation) =>
-        apiRequest<LifeState>('/api/actions', { revision, mutation }, 20000),
-      remote: (path, payload) => apiRequest<LifeState>(path, payload),
+        scopedApiRequest<LifeState>('/api/actions', { revision, mutation }, 20000),
+      remote: (path, payload) => scopedApiRequest<LifeState>(path, payload),
       read: () => {
         let raw: string | null;
         try {
@@ -346,6 +368,7 @@ export default function Workspace({
       changed: (snapshot) => {
         setSync(snapshot);
         if (snapshot.state) update(snapshot.state);
+        else if (snapshot.status === 'blocked' || snapshot.error) update(null);
         setLoading(snapshot.status === 'loading');
         setLoadError(snapshot.state ? '' : snapshot.error);
         setNeedsSignIn(snapshot.needsSignIn);
@@ -355,6 +378,11 @@ export default function Workspace({
           e instanceof Error ? e.message : 'Не удалось обновить календарь',
         );
         setNeedsSignIn(e instanceof ApiError && e.needsSignIn);
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403 || e.status === 404)) {
+          setState(null);
+          stateRef.current = null;
+          onAccessRevoked?.();
+        }
       },
     });
     queueRef.current = queue;
@@ -386,7 +414,10 @@ export default function Workspace({
       window.removeEventListener('online', online);
       window.removeEventListener('beforeunload', leaving);
     };
-  }, [ownerId, update]);
+  }, [ownerId, spaceId, scopedApiRequest, update, onAccessRevoked]);
+  useEffect(() => {
+    onBusyChange?.(sync.status === 'loading' || (sync.state !== null && (sync.count > 0 || sync.calendarPending)));
+  }, [sync.count, sync.state, sync.status, sync.calendarPending, onBusyChange]);
   useEffect(() => {
     if (state && scope !== 'all' && !state.tags.some((tag) => tag.id === scope))
       setScope('all');
@@ -1645,6 +1676,7 @@ export default function Workspace({
               )}
             </div>
             <div className="topbar-right">
+              {spaceControls}
               {migrationDestination && (
                 <button
                   className="btn secondary"
@@ -2048,6 +2080,8 @@ export default function Workspace({
                     <AgentPanel
                       history={state.history}
                       passwordAuth={passwordAuth}
+                      spaceId={spaceId}
+                      ownerId={ownerId}
                     />
                   )}
                 </>
@@ -2207,6 +2241,8 @@ export default function Workspace({
       )}
       <ImportCalendar
         tags={state?.tags ?? []}
+        spaceId={spaceId}
+        ownerId={ownerId}
         open={importOpen}
         setOpen={setImportOpen}
         pending={sync.calendarPending}
@@ -2726,12 +2762,16 @@ function RemoveSource({
 }
 function ImportCalendar({
   tags,
+  spaceId,
+  ownerId,
   open,
   setOpen,
   pending,
   submit,
 }: {
   tags: LifeState['tags'];
+  spaceId: string;
+  ownerId: string;
   open: boolean;
   setOpen: (v: boolean) => void;
   pending: boolean;
@@ -2915,7 +2955,7 @@ function ImportCalendar({
                         url,
                         username,
                         password,
-                      });
+                      }, 60000, { 'X-Life-Space': spaceId, 'X-Life-Account': ownerId });
                       if (id !== discoveryId.current) return;
                       setCalendars(result.calendars);
                       setCollection(result.calendars[0]?.url ?? '');
@@ -3000,10 +3040,15 @@ function ImportCalendar({
 function AgentPanel({
   history,
   passwordAuth,
+  spaceId,
+  ownerId,
 }: {
   history: LifeState['history'];
   passwordAuth: boolean;
+  spaceId: string;
+  ownerId: string;
 }) {
+  const headers = useMemo(() => ({ 'X-Life-Space': spaceId, 'X-Life-Account': ownerId }), [spaceId, ownerId]);
   const [tokens, setTokens] = useState<
       { hash: string; name: string; scope: string; created_at: string }[]
     >([]),
@@ -3014,14 +3059,14 @@ function AgentPanel({
     [pending, setPending] = useState(false);
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch('/api/tokens');
+      const r = await fetch('/api/tokens', { headers });
       const d = (await r.json()) as typeof tokens & { error?: string };
       if (!r.ok) throw new Error(d.error);
       setTokens(d);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [headers]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -3055,7 +3100,7 @@ function AgentPanel({
             try {
               const r = await fetch('/api/tokens', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...headers },
                 body: JSON.stringify({ name, scope }),
               });
               const d = (await r.json()) as { token: string; error?: string };
@@ -3141,7 +3186,7 @@ function AgentPanel({
                 try {
                   const r = await fetch('/api/tokens', {
                     method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...headers },
                     body: JSON.stringify({ hash: t.hash }),
                   });
                   if (!r.ok) throw new Error('Не удалось отозвать токен');

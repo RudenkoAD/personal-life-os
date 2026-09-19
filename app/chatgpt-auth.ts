@@ -1,7 +1,12 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { runtime, usesPasswordAuth } from '@/lib/runtime-config';
-import { validSession } from '@/lib/password-session';
+import { readSessionUser } from '@/lib/password-session';
+import {
+  ensureAccount,
+  ensureBootstrapAccount,
+  getAccount,
+} from '@/lib/spaces';
 
 export type ChatGPTUser = {
   userId: string;
@@ -23,20 +28,23 @@ const CALLBACK_PATH = '/callback';
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
   if (usesPasswordAuth()) {
-    const owner = runtime.AUTH_OWNER_ID ?? '';
-    if (
-      !(await validSession(
-        requestHeaders.get('cookie'),
-        owner,
-        runtime.AUTH_SESSION_SECRET ?? '',
-      ))
-    )
-      return null;
+    const bootstrap = await ensureBootstrapAccount();
+    const userId = await readSessionUser(
+      requestHeaders.get('cookie'),
+      runtime.AUTH_SESSION_SECRET ?? '',
+      bootstrap?.id ?? runtime.AUTH_OWNER_ID ?? '',
+    );
+    if (!userId) return null;
+    const account = await getAccount(userId);
+    if (!account) return null;
     return {
-      userId: owner,
-      displayName: 'Я',
-      email: runtime.AUTH_OWNER_EMAIL ?? '',
-      fullName: null,
+      userId: account.id,
+      displayName: account.name,
+      email:
+        account.id === runtime.AUTH_OWNER_ID
+          ? (runtime.AUTH_OWNER_EMAIL ?? '')
+          : '',
+      fullName: account.name,
     };
   }
   const userId = requestHeaders.get(USER_ID_HEADER);
@@ -50,11 +58,16 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
       ? safeDecodeURIComponent(encodedFullName)
       : null;
 
+  const account = await ensureAccount({
+    id: userId,
+    login: email,
+    name: fullName ?? email,
+  });
   return {
-    userId,
-    displayName: fullName ?? email,
+    userId: account.id,
+    displayName: account.name,
     email,
-    fullName,
+    fullName: account.name,
   };
 }
 

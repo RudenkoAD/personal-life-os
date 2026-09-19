@@ -2,6 +2,11 @@ import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { runtime, usesPasswordAuth } from '@/lib/runtime-config';
 import { publicOrigin } from '@/lib/password-session';
 import { rawDb } from '@/db/store';
+import {
+  authorizeSpace,
+  ensureAccount,
+  ensureBootstrapAccount,
+} from '@/lib/spaces';
 export async function hashToken(token: string) {
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -16,6 +21,11 @@ export async function identity(
   write = false,
   accountOnly = false,
 ) {
+  const selectedSpace = request.headers.get('x-life-space');
+  if (selectedSpace !== null && (!selectedSpace || selectedSpace.length > 200))
+    throw Object.assign(new Error('Нет доступа к пространству'), {
+      status: 403,
+    });
   const origin = request.headers.get('origin');
   const expectedOrigin = usesPasswordAuth()
     ? publicOrigin(runtime.PUBLIC_BASE_URL)
@@ -30,15 +40,41 @@ export async function identity(
       status: 403,
     });
   if (auth?.startsWith('Bearer ') && !accountOnly) {
+    if (usesPasswordAuth()) await ensureBootstrapAccount();
+    const tokenHash = await hashToken(auth.slice(7));
     const token = await rawDb()
-      .prepare('SELECT owner_id, scope, name FROM agent_tokens WHERE hash = ?')
-      .bind(await hashToken(auth.slice(7)))
-      .first<{ owner_id: string; scope: string; name: string }>();
+      .prepare(
+        'SELECT owner_id, user_id, scope, name FROM agent_tokens WHERE hash = ?',
+      )
+      .bind(tokenHash)
+      .first<{
+        owner_id: string;
+        user_id: string | null;
+        scope: string;
+        name: string;
+      }>();
     if (!token || (write && token.scope !== 'write'))
       throw Object.assign(new Error('Недостаточно прав токена'), {
         status: 403,
       });
-    return { owner: token.owner_id, name: 'Агент: ' + token.name, agent: true };
+    // A bearer grant targets exactly one space and cannot be retargeted by headers.
+    if (!token.user_id || (selectedSpace && selectedSpace !== token.owner_id))
+      throw Object.assign(new Error('Недостаточно прав токена'), {
+        status: 403,
+      });
+    const membership = await authorizeSpace(token.user_id, token.owner_id);
+    if (!membership)
+      throw Object.assign(new Error('Нет доступа к пространству'), {
+        status: 403,
+      });
+    return {
+      owner: token.owner_id,
+      userId: token.user_id,
+      role: membership.role,
+      name: 'Агент: ' + token.name,
+      agent: true,
+      access: { userId: token.user_id, tokenHash },
+    };
   }
   const user = await getChatGPTUser();
   if (!user)
@@ -46,7 +82,26 @@ export async function identity(
       new Error('Войдите, чтобы открыть личное пространство'),
       { status: 401 },
     );
-  return { owner: user.userId, name: 'Вы', agent: false };
+  const expectedAccount = request.headers.get('x-life-account');
+  if (expectedAccount !== null && expectedAccount !== user.userId)
+    throw Object.assign(new Error('Аккаунт изменился. Войдите снова.'), {
+      status: 401,
+    });
+  await ensureAccount({ id: user.userId, name: user.displayName });
+  const spaceId = selectedSpace ?? user.userId;
+  const membership = await authorizeSpace(user.userId, spaceId);
+  if (!membership)
+    throw Object.assign(new Error('Нет доступа к пространству'), {
+      status: 403,
+    });
+  return {
+    owner: spaceId,
+    userId: user.userId,
+    role: membership.role,
+    name: user.displayName,
+    agent: false,
+    access: { userId: user.userId },
+  };
 }
 export async function body(request: Request, max = 100000) {
   if (Number(request.headers.get('content-length') ?? 0) > max)

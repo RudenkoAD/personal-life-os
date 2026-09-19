@@ -255,3 +255,22 @@ test('ICS token replacement requires an owned feed and rolls back on failed rece
   });
   assert.equal((await stored()).url, newUrl);
 });
+
+test('membership and bearer revocation gate the same transaction as task and credential writes', async () => {
+  const owner = 'guarded-space', user = 'guarded-user';
+  const db = rawDb();
+  await db.prepare("INSERT INTO space_members VALUES (?, ?, 'member')").bind(owner, user).run();
+  const before = await loadState(owner);
+  const after = applyAction(before, { type: 'capture', title: 'Denied after removal' });
+  await db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').bind(owner, user).run();
+  await assert.rejects(() => saveState(owner, before.revision, after,
+    { kind: 'put', id: 'guarded-feed', url: 'https://calendar.google.com/fixture' }, undefined, { userId: user }), e => e.status === 403);
+  assert.equal((await loadState(owner)).revision, before.revision);
+  assert.equal(await db.prepare('SELECT id FROM feeds WHERE id = ?').bind('guarded-feed').first(), null);
+  await db.prepare("INSERT INTO space_members VALUES (?, ?, 'member')").bind(owner, user).run();
+  await assert.rejects(() => saveState(owner, before.revision, after, undefined, undefined,
+    { userId: user, tokenHash: 'revoked-token' }), e => e.status === 403);
+  assert.equal((await loadState(owner)).revision, before.revision);
+  await saveState(owner, before.revision, after, undefined, undefined, { userId: user });
+  assert.equal((await loadState(owner)).cards[0].title, 'Denied after removal');
+});

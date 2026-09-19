@@ -64,6 +64,7 @@ export async function saveState(
   state: LifeState,
   feed?: FeedChange,
   mutation?: { id: string; hash: string },
+  access?: { userId: string; tokenHash?: string },
 ) {
   const data = JSON.stringify(state);
   if (data.length > 1800000)
@@ -77,6 +78,12 @@ export async function saveState(
       'UPDATE workspaces SET revision = ?, data = ?, updated_at = ?, commit_id = ? WHERE owner_id = ? AND revision = ?' +
         (feed?.kind === 'replace'
           ? ' AND EXISTS (SELECT 1 FROM feeds WHERE id = ? AND owner_id = ?)'
+          : '') +
+        (access
+          ? ' AND EXISTS (SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ?)'
+          : '') +
+        (access?.tokenHash
+          ? " AND EXISTS (SELECT 1 FROM agent_tokens WHERE hash = ? AND owner_id = ? AND user_id = ? AND scope = 'write')"
           : ''),
     )
     .bind(
@@ -87,6 +94,8 @@ export async function saveState(
       owner,
       previous,
       ...(feed?.kind === 'replace' ? [feed.id, owner] : []),
+      ...(access ? [owner, access.userId] : []),
+      ...(access?.tokenHash ? [access.tokenHash, owner, access.userId] : []),
     );
   const statements = [update];
   // The commit marker ties the credential effect to this exact successful CAS.
@@ -147,6 +156,15 @@ export async function saveState(
         ),
     );
   const [result] = await db.batch(statements);
+  if (!result.meta.changes && access) {
+    const member = await db.prepare('SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ?')
+      .bind(owner, access.userId).first();
+    const token = !access.tokenHash || await db.prepare(
+      "SELECT 1 FROM agent_tokens WHERE hash = ? AND owner_id = ? AND user_id = ? AND scope = 'write'",
+    ).bind(access.tokenHash, owner, access.userId).first();
+    if (!member || !token)
+      throw Object.assign(new Error('Нет доступа к пространству'), { status: 403 });
+  }
   if (!result.meta.changes)
     throw Object.assign(
       new Error(

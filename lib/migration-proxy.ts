@@ -58,6 +58,11 @@ export async function forwardMigration(request: Request, accountOnly = false) {
     );
     headers.set('Cookie', `${sessionCookie}=${session}`);
   }
+  // The destination checks membership; never silently route a selected space to private data.
+  const space = request.headers.get('x-life-space');
+  if (space) headers.set('X-Life-Space', space);
+  const account = request.headers.get('x-life-account');
+  if (account) headers.set('X-Life-Account', account);
   const type = request.headers.get('content-type');
   if (type) headers.set('Content-Type', type);
   const response = await fetch(destination + source.pathname + source.search, {

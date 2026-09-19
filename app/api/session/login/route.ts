@@ -5,7 +5,10 @@ import {
   verifyPassword,
   createSession,
   cookieValue,
+  createUserSession,
 } from '@/lib/password-session';
+import { ensureBootstrapAccount, normalizeLogin } from '@/lib/spaces';
+import { rawDb } from '@/db/store';
 
 const attempts = new Map<string, { count: number; until: number }>();
 export async function POST(request: Request) {
@@ -49,8 +52,35 @@ export async function POST(request: Request) {
   }
   const form = new URLSearchParams(text);
   const target = safeReturnPath(form.get('return_to'));
+  const login = form.get('login')?.trim() || 'owner';
   const password = form.get('password') ?? '';
-  if (!(await verifyPassword(password, runtime.AUTH_PASSWORD_HASH ?? '')))
+  const bootstrap = await ensureBootstrapAccount();
+  let account = bootstrap;
+  let storedPassword: string | null = null;
+  try {
+    const normalized = normalizeLogin(login);
+    const row = await rawDb()
+      .prepare(
+        'SELECT id, login, name, password_hash as passwordHash FROM users WHERE login = ?',
+      )
+      .bind(normalized)
+      .first<{
+        id: string;
+        login: string;
+        name: string;
+        passwordHash: string | null;
+      }>();
+    if (row) {
+      account = { id: row.id, login: row.login, name: row.name };
+      storedPassword = row.passwordHash;
+    } else account = null;
+  } catch {
+    account = null;
+  }
+  const passwordHash =
+    storedPassword ??
+    (account?.id === runtime.AUTH_OWNER_ID ? runtime.AUTH_PASSWORD_HASH : null);
+  if (!account || !(await verifyPassword(password, passwordHash ?? '')))
     return new Response(null, {
       status: 303,
       headers: {
@@ -58,8 +88,8 @@ export async function POST(request: Request) {
         'Cache-Control': 'no-store',
       },
     });
-  const session = await createSession(
-    runtime.AUTH_OWNER_ID ?? '',
+  const session = await createUserSession(
+    account.id,
     runtime.AUTH_SESSION_SECRET ?? '',
   );
   attempts.delete(ip);

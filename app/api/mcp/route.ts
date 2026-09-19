@@ -45,7 +45,7 @@ const tools = [
   {
     name: 'life_read',
     description:
-      'Read this user’s settings, tasks (including archived cards), Inbox, boards, scopes, recurring task rules, calendar sources/events, fixed calendarSeries with exceptions, review lists and revision. Due recurring rules produce one Inbox task on read. Feed secrets are never returned.',
+      'Read the authorized space’s settings, tasks (including archived cards), Inbox, boards, scopes, recurring task rules, calendar sources/events, fixed calendarSeries with exceptions, review lists and revision. Due recurring rules produce one Inbox task on read. Feed secrets are never returned.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -125,9 +125,9 @@ export async function POST(req: Request) {
           const next = applyAction(
             state,
             a.action,
-            u.agent ? u.name : 'Агент (веб-сессия)',
+            u.agent ? u.name : `Агент (${u.name})`,
           );
-          await saveState(u.owner, state.revision, next);
+          await saveState(u.owner, state.revision, next, undefined, undefined, u.access);
           state = next;
         } else if (r.params.name !== 'life_read')
           throw new Error('Unknown tool');

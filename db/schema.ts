@@ -36,6 +36,7 @@ export const tokens = sqliteTable(
   {
     hash: text('hash').primaryKey(),
     ownerId: text('owner_id').notNull(),
+    userId: text('user_id'),
     name: text('name').notNull(),
     scope: text('scope').notNull(),
     createdAt: text('created_at').notNull(),
@@ -53,3 +54,36 @@ export const mutations = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.ownerId, t.id] })],
 );
+
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  login: text('login').notNull().unique(),
+  name: text('name').notNull(),
+  passwordHash: text('password_hash'),
+});
+
+export const spaces = sqliteTable('spaces', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  kind: text('kind').notNull(),
+  createdBy: text('created_by').notNull(),
+});
+
+export const spaceMembers = sqliteTable(
+  'space_members',
+  {
+    spaceId: text('space_id').notNull(),
+    userId: text('user_id').notNull(),
+    role: text('role').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
+);
+
+export const spaceInvites = sqliteTable('space_invites', {
+  hash: text('hash').primaryKey(),
+  spaceId: text('space_id').notNull(),
+  expiresAt: text('expires_at').notNull(),
+  createdBy: text('created_by').notNull(),
+  consumed: integer('consumed', { mode: 'boolean' }).notNull().default(false),
+  consumedBy: text('consumed_by'),
+});

@@ -105,3 +105,32 @@ test('background scheduler generates without HTTP and keeps receipts after resta
     stop?.(); database.close(); rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('background scheduler covers private and shared aggregates without crossing their data', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { startEventTaskWorker } = await import('../server/event-task-worker.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'life-os-spaces-worker-'));
+  const path = join(directory, 'db.sqlite');
+  const database = new DatabaseSync(path);
+  database.exec('CREATE TABLE workspaces (owner_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, commit_id TEXT)');
+  const now = Date.now();
+  for (const id of ['private-a', 'private-b', 'shared']) {
+    const state = initialState(new Date(now));
+    state.events = [{ id: 'same-event-id', sourceId: 'fixture', uid: 'fixture', title: id, start: new Date(now + 60000).toISOString(), end: new Date(now + 3600000).toISOString(), allDay: false, tags: [], location: '' }];
+    state.eventTaskRules['external:same-event-id'] = [{ id: 'same-rule-id', title: `${id} task`, notes: '', minutesBefore: 2, createdAt: new Date(now - 120000).toISOString() }];
+    database.prepare('INSERT INTO workspaces VALUES (?, 0, ?, ?, NULL)').run(id, JSON.stringify(state), new Date(now).toISOString());
+  }
+  let stop;
+  try {
+    stop = startEventTaskWorker({ path, intervalMs: 10 });
+    await new Promise(r => setTimeout(r, 40));
+    for (const row of database.prepare('SELECT owner_id, revision, data FROM workspaces').all()) {
+      assert.equal(row.revision, 1);
+      const state = JSON.parse(row.data);
+      assert.equal(state.cards.length, 1);
+      assert.equal(state.cards[0].title, `${row.owner_id} task`);
+    }
+  } finally { stop?.(); database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
